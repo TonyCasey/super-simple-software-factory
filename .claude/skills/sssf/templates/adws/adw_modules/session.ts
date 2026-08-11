@@ -61,15 +61,21 @@ export function ensure(cfg: SSSFConfig, adw_id?: string | null): Run {
 /**
  * Run an ADW's `main` and exit with its code.
  *
- * A config problem is a message, not a stack trace — it is the engineer's typo,
- * and the fix is in sssf.config.yaml. Anything else is a real fault and prints
- * in full, because that one you have to debug.
+ * A bad invocation or a config problem is a message, not a stack trace — both
+ * are the engineer's typo, and the fix is in the command line or in
+ * sssf.config.yaml. A usage error exits 2, the conventional CLI code for
+ * "you called this wrong". Anything else is a real fault and prints in full,
+ * because that one you have to debug.
  */
 export async function cli(main: () => Promise<number>): Promise<never> {
   try {
     process.exit(await main());
   } catch (error) {
     const named = error as { name?: string; message?: string };
+    if (named?.name === "UsageError") {
+      console.error(named.message);
+      process.exit(2);
+    }
     console.error(named?.name === "ConfigError" ? named.message : error);
     process.exit(1);
   }

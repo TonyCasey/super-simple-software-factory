@@ -2,6 +2,7 @@
 
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { relative } from "node:path";
 
 // Bun reads `.env` from the project root before a single line of this runs, so
 // there is no load-dotenv step. Keys named in .env reach every ADW, and every
@@ -28,8 +29,17 @@ export function operator_env(): Record<string, string> {
   return env;
 }
 
+/**
+ * A random hex id of exactly `length` characters.
+ *
+ * Rounds the byte count UP and slices, because hex is always 2 chars per byte:
+ * rounding down would hand back a shorter id than asked for, silently, and an
+ * id that is quietly 1 character shorter is an id with 16x less entropy.
+ */
 export function new_id(length = 8): string {
-  return randomBytes(Math.floor(length / 2)).toString("hex");
+  return randomBytes(Math.ceil(length / 2))
+    .toString("hex")
+    .slice(0, length);
 }
 
 /** UTC, milliseconds, offset-suffixed — the exact shape every stored timestamp has. */
@@ -50,6 +60,43 @@ export function resolve_prompt(arg: string): string {
     // not a path, or not readable — it is inline text
   }
   return arg;
+}
+
+/** A bad invocation. Printed as one line and exits 2, the way a CLI should. */
+export class UsageError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UsageError";
+  }
+}
+
+/**
+ * The ADW's single positional argument, validated and resolved.
+ *
+ * A missing prompt is a usage error, never an empty one. An ADW that starts on
+ * `""` still mints a session and spawns its agents against nothing — and in a
+ * chain that ends in a commit phase, that means editing and committing a repo
+ * over a request nobody made. Extra positionals are rejected for the same
+ * reason: the second one would be silently dropped, so a quoting mistake would
+ * run the wrong prompt rather than say so.
+ *
+ * `args_usage` is the argument half of the usage line, e.g.
+ * `'"<prompt>" [--config PATH]'` — the script's own name is filled in here.
+ */
+export function require_prompt(positionals: string[], args_usage: string): string {
+  const script = relative(process.cwd(), process.argv[1] ?? "adw.ts") || "adw.ts";
+  const usage = `usage: bun ${script} ${args_usage}`;
+  const [prompt, ...extra] = positionals;
+  if (!prompt || !prompt.trim()) {
+    throw new UsageError(`missing the required prompt argument.\n${usage}`);
+  }
+  if (extra.length) {
+    throw new UsageError(
+      `expected one prompt, got ${positionals.length} — ` +
+        `${JSON.stringify(extra)} would have been ignored. Quote the whole prompt.\n${usage}`,
+    );
+  }
+  return resolve_prompt(prompt);
 }
 
 export function engineer_name(): string {

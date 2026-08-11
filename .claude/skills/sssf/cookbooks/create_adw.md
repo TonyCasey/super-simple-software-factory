@@ -129,7 +129,11 @@ if (import.meta.main) {
     allowPositionals: true,
   });
   await session.cli(() =>
-    main(utils.resolve_prompt(positionals[0] ?? ""), values.config, values["adw-id"]),
+    main(
+      utils.require_prompt(positionals, '"<prompt or path/to/prompt.md>" [--config PATH] [--adw-id ID]'),
+      values.config,
+      values["adw-id"],
+    ),
   );
 }
 ```
@@ -142,6 +146,7 @@ if (import.meta.main) {
 - **Every agent call declares a concrete output type** from `data_types.ts`. No untyped handoffs.
 - **`previous=` carries the chain** — the upstream envelope lands in the next agent's `user.md` as `{{previous_envelope}}`; bulky context moves through `context_handoff/` files the envelope references.
 - **The engineer request phase comes first**, always.
+- **`utils.require_prompt` guards the positional** — a missing prompt is a usage error that exits 2, never an empty string. An ADW that starts on `""` still mints a session and spawns its agents against nothing, and in a chain ending in a commit phase that means committing over a request nobody made.
 - **Four-param rule** — `run.phase()` and `ph.call()` each take exactly one object; new helpers with >4 params get a data type.
 - **Stay thin** — sequencing and acceptance only; real logic goes in `adw_modules/` (`update_modules.md`).
 - **Committing is a code phase, and it needs a fallback.** `PlanOutput`, `BuildOutput`, and `DocumentOutput` each carry a `commit_message` the agent writes **for its own work product** — the spec, the code, the write-up. It defaults to empty, so always `envelope.commit_message or <fallback>`, and commit each product with the message of the agent that made it (`adw_simple_sdlc.ts` commits three times and never crosses them). `git_helper.commit_all(message)` stages everything, commits, and returns the short sha; it throws a clear error when the cwd isn't a git repo or nothing changed, and that throw fails the phase.

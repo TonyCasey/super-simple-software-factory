@@ -60,7 +60,7 @@ if (import.meta.main) {
   });
   await session.cli(() =>
     main(
-      utils.resolve_prompt(positionals[0] ?? ""),
+      utils.require_prompt(positionals, "\"<prompt or path/to/prompt.md>\" [--agent builder] [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]"),
       values.agent,
       values.config,
       values["adw-id"],

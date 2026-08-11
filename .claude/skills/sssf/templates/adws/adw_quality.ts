@@ -71,6 +71,6 @@ if (import.meta.main) {
     allowPositionals: true,
   });
   await session.cli(() =>
-    main(utils.resolve_prompt(positionals[0] ?? ""), values.config, values["adw-id"]),
+    main(utils.require_prompt(positionals, "\"<reason for the quality run>\" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]"), values.config, values["adw-id"]),
   );
 }
