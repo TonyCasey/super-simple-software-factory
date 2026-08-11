@@ -2,7 +2,7 @@
 
 The full `sssf.config.yaml` spec: every field, how defaults merge, and how model / thinking / tools / extensions map onto the coding agent.
 
-It lives at **`adws/adw_sssf_config/sssf.config.yaml`** — the default path every `adw_*.py` and the justfile resolve, and where `install.py` / `make_config.py` stamp it. Pass `--config <path>` to any ADW (or set `SSSF_CONFIG` for the justfile) to run against a different roster.
+It lives at **`adws/adw_sssf_config/sssf.config.yaml`** — the default path every `adw_*.ts` and the justfile resolve, and where `install.ts` / `make_config.ts` stamp it. Pass `--config <path>` to any ADW (or set `SSSF_CONFIG` for the justfile) to run against a different roster.
 
 ## Shape
 
@@ -42,20 +42,20 @@ agents:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `coding_agent` | `pi` \| `claude_code` | Which interface runs the agent. **v1 implements `pi` only**; `claude_code` is specced and stubbed in `agent_cc.py`, landing in v2. |
+| `coding_agent` | `pi` \| `claude_code` | Which interface runs the agent. **v1 implements `pi` only**; `claude_code` is specced and stubbed in `agent_cc.ts`, landing in v2. |
 | `model` | string | Model id. For Pi, any id registered in `~/.pi/agent/models.json`. Default `gemini-3.6-flash`. |
 | `thinking` | enum | Reasoning effort — see below. Default `medium`. |
 | `color` | hex string | Lane color for every agent that does not set its own. Default empty — the visualizer falls back to its own palette. |
 | `harness_engineering` | list[string] | Coding-agent extensions. Pi: extension names. Claude Code: reserved (MCP, hooks). |
 | `tools` | list[string] | Roster-wide tool allowlist. Every agent that omits its own `tools` inherits this. Unset = all tools usable. |
-| `protected_files` | list[string] | Paths **no** agent may modify unless it names them in its own `writes`. Default: `adws/adw_modules/`, `adws/adw_sssf_config/`, `adws/adw_*.py` — an agent must not be able to edit the machinery that decides whether its work passed. |
+| `protected_files` | list[string] | Paths **no** agent may modify unless it names them in its own `writes`. Default: `adws/adw_modules/`, `adws/adw_sssf_config/`, `adws/adw_*.ts` — an agent must not be able to edit the machinery that decides whether its work passed. |
 | `data_dir` | path | Runtime home. Sessions land at `{data_dir}/sessions/{adw_id}/{agent_name}/`. Default `adws/adw_data`. |
 
 ### `observability`
 
 | Field | Type | Meaning |
 |---|---|---|
-| `db` | path | SQLite trace db. `tracer.py` writes it directly; the visualizer polls it. Default `adws/adw_data/sssf.db`. |
+| `db` | path | SQLite trace db. `tracer.ts` writes it directly; the visualizer polls it. Default `adws/adw_data/sssf.db`. |
 | `poll_ms` | int | Visualizer live-poll cadence in ms. History uses the same queries, lazy-paged. Default `500`. |
 
 ### `agents[]`
@@ -75,7 +75,7 @@ Output types are deliberately absent: config defines who an agent *is*; the ADW 
 
 ## Defaults merging
 
-`agents.py` merges each entry **over** `defaults`, key by key. An entry states only what differs; anything unset inherits. `agents.validate(cfg, REQUIRED_AGENTS)` then confirms every name an ADW declares exists, resolves to a usable coding agent + model, and has both prompt files present on disk. Any miss fails the run immediately — **no agent is ever spawned against a half-valid config.**
+`agents.ts` merges each entry **over** `defaults`, key by key. An entry states only what differs; anything unset inherits. `agents.validate(cfg, REQUIRED_AGENTS)` then confirms every name an ADW declares exists, resolves to a usable coding agent + model, and has both prompt files present on disk. Any miss fails the run immediately — **no agent is ever spawned against a half-valid config.**
 
 ## Thinking levels
 
@@ -89,7 +89,7 @@ Mapped to Pi's reasoning effort control and honored when the model is registered
 
 ## Model resolution
 
-**Always write `model` as `provider/model-id`.** `agents.py` hands the string to the Pi interface, which resolves it against pi's merged catalog — `~/.pi/agent/models.json` plus pi's built-in providers. The same model is usually carried by more than one provider (`gemini-3.6-flash` lives under `google` *and* under `openrouter` as `google/gemini-3.6-flash`), and a bare id that matches several **raises at resolution**:
+**Always write `model` as `provider/model-id`.** `agents.ts` hands the string to the Pi interface, which resolves it against pi's merged catalog — `~/.pi/agent/models.json` plus pi's built-in providers. The same model is usually carried by more than one provider (`gemini-3.6-flash` lives under `google` *and* under `openrouter` as `google/gemini-3.6-flash`), and a bare id that matches several **throws at resolution**:
 
 ```
 agent 'scout': model pattern 'gemini-3.6-flash' is ambiguous:
@@ -131,7 +131,7 @@ engineer's uncommitted work; `write` reaches any path, not only the one report
 file an agent was granted it for. So "this agent changes nothing" is a claim a
 tool list can state but never keep.
 
-`adw_modules/permissions.py` keeps it, the same way every other claim in this
+`adw_modules/permissions.ts` keeps it, the same way every other claim in this
 system is kept — after the fact, against the repo. Before an agent's first
 prompt the working tree's change-set is fingerprinted; after its last send
 (including JSON retries and gate corrections) it is fingerprinted again. Any
@@ -153,7 +153,7 @@ redo; a write has already happened, so re-prompting fixes nothing. Instead:
 
 ```yaml
 defaults:
-  protected_files: [adws/adw_modules/, adws/adw_sssf_config/, "adws/adw_*.py"]
+  protected_files: [adws/adw_modules/, adws/adw_sssf_config/, "adws/adw_*.ts"]
 
 agents:
   - name: builder      # no `writes` key -> unrestricted, minus protected_files

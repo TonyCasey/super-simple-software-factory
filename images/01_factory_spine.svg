@@ -57,7 +57,7 @@
 
   <!-- the deterministic rail -->
   <line class="rail" x1="60" y1="258" x2="1120" y2="258" stroke="#475569" stroke-width="10" stroke-linecap="round"/>
-  <text filter="url(#ts)" class="cap mono" x="60" y="196">adws/adw_plan_build_test.py &#8212; deterministic control plane</text>
+  <text filter="url(#ts)" class="cap mono" x="60" y="196">adws/adw_plan_build_test.ts &#8212; deterministic control plane</text>
 
   <!-- phase blocks -->
   <g class="blk b1">
@@ -112,7 +112,7 @@
     <path class="bus" d="M160,396 L1020,396"/>
     <path class="drop d6" d="M550,396 L550,436" stroke-width="2" marker-end="url(#ag)"/>
   </g>
-  <text filter="url(#ts)" class="cap mono" x="60" y="470">tracer.py writes</text>
+  <text filter="url(#ts)" class="cap mono" x="60" y="470">tracer.ts writes</text>
   <text filter="url(#ts)" class="cap mono" x="60" y="490">every event, live</text>
 
   <!-- sqlite db -->

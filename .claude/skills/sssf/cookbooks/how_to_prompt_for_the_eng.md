@@ -61,8 +61,8 @@ Same idea, same scope. What changed is that "popularity" became a sort order, th
 **If they did not, read what this repo actually has and choose from that.**
 
 ```bash
-ls adws/adw_*.py                       # the menu
-head -20 adws/adw_<name>.py            # every ADW opens with its `Phases:` line — the chain in one line
+ls adws/adw_*.ts                       # the menu
+head -20 adws/adw_<name>.ts            # every ADW opens with its `Phases:` line — the chain in one line
 ```
 
 Chains are the engineer's to add, rename, and rewire, so **the files on disk are the only authority**. Never launch from memory or from a name you saw in a doc; read the docstrings, then match by shape:
