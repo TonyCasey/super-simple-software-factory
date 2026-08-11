@@ -80,7 +80,7 @@
     <text filter="url(#ts3)" class="hd mono" x="584" y="130">your-api/</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="158">adws/adw_sssf_config/</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="158">the agent roster</text>
-    <text filter="url(#ts3)" class="row mono" x="584" y="182">adws/adw_*.py</text>
+    <text filter="url(#ts3)" class="row mono" x="584" y="182">adws/adw_*.ts</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="182">workflows + modules</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="206">adws/adw_data/prompt_engineering/</text>
   </g>
@@ -89,7 +89,7 @@
     <text filter="url(#ts3)" class="hd mono" x="584" y="264">your-frontend/</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="292">adws/adw_sssf_config/</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="292">different agents</text>
-    <text filter="url(#ts3)" class="row mono" x="584" y="316">adws/adw_*.py</text>
+    <text filter="url(#ts3)" class="row mono" x="584" y="316">adws/adw_*.ts</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="316">different chains</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="340">adws/adw_data/prompt_engineering/</text>
   </g>
@@ -98,7 +98,7 @@
     <text filter="url(#ts3)" class="hd mono" x="584" y="398">this-repo/</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="426">adws/adw_sssf_config/</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="426">planner builder</text>
-    <text filter="url(#ts3)" class="row mono" x="584" y="450">adws/adw_*.py</text>
+    <text filter="url(#ts3)" class="row mono" x="584" y="450">adws/adw_*.ts</text>
     <text filter="url(#ts3)" class="dim mono" x="790" y="450">scout tester</text>
     <text filter="url(#ts3)" class="row mono" x="584" y="474">adws/adw_data/prompt_engineering/</text>
   </g>

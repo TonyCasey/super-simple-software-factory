@@ -12,7 +12,7 @@ Edit the agent's entry in place:
     thinking: high                   # was medium
 ```
 
-Write the model as `provider/model-id`, never a bare id. The same model is usually carried by several providers, and an ambiguous pattern raises in `agents.validate()` — grounding every agent that inherits it. See `references/config.md`.
+Write the model as `provider/model-id`, never a bare id. The same model is usually carried by several providers, and an ambiguous pattern throws in `agents.validate()` — grounding every agent that inherits it. See `references/config.md`.
 
 Thinking levels are Pi's reasoning effort: `off | minimal | low | medium | high | xhigh | max`. It only bites when the model is registered with `reasoning: true` in `~/.pi/agent/models.json`.
 
@@ -90,13 +90,13 @@ Three steps, all required — skipping any one fails `agents.validate()` at ADW 
 
 1. **Prompts.** Create `adws/adw_data/prompt_engineering/{name}/system.md` (Purpose + Instructions — the agent's static identity, nothing else) and `user.md` (an h3 per incoming datum: `{{prompt}}`, `{{previous_envelope}}`, `{{context_handoff_dir}}`, then the task, then a `## Report` section showing the exact output JSON). Copy an existing pair as the shape.
 2. **Config entry.** Name, purpose, prompt refs, plus anything that differs from `defaults`.
-3. **An output type.** Every agent call parses against a concrete Pydantic model in `adw_modules/data_types.py`. If none of `PlanOutput`, `BuildOutput`, `ScoutOutput`, `ReviewOutput`, `DocumentOutput` fits the new agent's report, add one — see `update_modules.md`. The user prompt's `Report` section must show exactly that JSON shape.
+3. **An output type.** Every agent call parses against a concrete Pydantic model in `adw_modules/data_types.ts`. If none of `PlanOutput`, `BuildOutput`, `ScoutOutput`, `ReviewOutput`, `DocumentOutput` fits the new agent's report, add one — see `update_modules.md`. The user prompt's `Report` section must show exactly that JSON shape.
 
 Then name the agent in an ADW's `REQUIRED_AGENTS` and call it.
 
 ## Rules that do not bend
 
-- ADW scripts name **agents**, never models. Swapping a model is a config edit and touches no Python.
+- ADW scripts name **agents**, never models. Swapping a model is a config edit and touches no TypeScript.
 - One agent, one prompt, one purpose. If an entry needs two purposes, it is two agents.
 - Output types never appear in config — they live at the call site, paired with the user prompt.
 

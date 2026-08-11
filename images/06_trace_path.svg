@@ -59,7 +59,7 @@
   <line class="e e1" x1="242" y1="200" x2="324" y2="200" stroke="#E2E8F0" stroke-width="2" marker-end="url(#aw6)"/>
   <g class="n n2">
     <rect x="328" y="150" width="170" height="100" rx="12" fill="#0F172A" stroke="#E2E8F0" stroke-width="1.8"/>
-    <text filter="url(#ts6)" class="nd mono" x="413" y="186" text-anchor="middle">tracer.py</text>
+    <text filter="url(#ts6)" class="nd mono" x="413" y="186" text-anchor="middle">tracer.ts</text>
     <text filter="url(#ts6)" class="sm mono" x="413" y="210" text-anchor="middle">tails stdout,</text>
     <text filter="url(#ts6)" class="sm mono" x="413" y="228" text-anchor="middle">inserts mid-run</text>
   </g>

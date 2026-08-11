@@ -4,7 +4,7 @@ The system map the orchestrator reads on startup — what SSSF is, how a stamped
 
 ## What SSSF is
 
-Super Simple Software Factory builds repeatable **agents plus code** workflows. Deterministic Python (an ADW script) owns sequencing, retries, and acceptance; agents are bounded nodes inside that graph. Agent proposes, code disposes.
+Super Simple Software Factory builds repeatable **agents plus code** workflows. Deterministic TypeScript (an ADW script) owns sequencing, retries, and acceptance; agents are bounded nodes inside that graph. Agent proposes, code disposes.
 
 Your job as orchestrator: **run the system, observe the system, help the engineer interact with it.** You do not do the work an ADW exists to do.
 
@@ -14,19 +14,19 @@ Your job as orchestrator: **run the system, observe the system, help the enginee
 adws/
 ├── adw_sssf_config/
 │   └── sssf.config.yaml         the agent roster — one agent, one prompt, one purpose
-├── adw_prompt.py                smallest ADW: one agent, one prompt, traced end-to-end
-├── adw_plan.py, adw_scout.py, adw_build.py, adw_plan_build.py, adw_build_test.py, adw_plan_build_test.py
-├── adw_build_review.py          build → review: is this what was asked for? (not testing)
-├── adw_document.py              write up the work just done, from git diff vs main
-├── adw_simple_sdlc.py           plan → build → test → review → document; commits each product
+├── adw_prompt.ts                smallest ADW: one agent, one prompt, traced end-to-end
+├── adw_plan.ts, adw_scout.ts, adw_build.ts, adw_plan_build.ts, adw_build_test.ts, adw_plan_build_test.ts
+├── adw_build_review.ts          build → review: is this what was asked for? (not testing)
+├── adw_document.ts              write up the work just done, from git diff vs main
+├── adw_simple_sdlc.ts           plan → build → test → review → document; commits each product
 ├── adw_modules/                 ALL low-level logic — ADW scripts stay thin
-│   ├── data_types.py            AgentCall, PhaseParams, Phase, Envelope + one output type per agent call
-│   ├── agents.py                load_config, validate, resolve entry → interface + model + thinking
-│   ├── runner.py                the Run object: run.phase(PhaseParams) → ph.call(AgentCall)
-│   ├── agent_pi.py              Pi interface (v1)   ·   agent_cc.py  Claude Code (v2, stubbed)
-│   ├── gates.py                 gate(envelope, run) -> GateReport — one check per item verified
-│   ├── changes.py               git diff vs a resolved base → ChangeSet → envelope for the documenter
-│   ├── prompts.py, session.py, tracer.py, console.py, git_helper.py, utils.py
+│   ├── data_types.ts            AgentCall, PhaseParams, Phase, Envelope + one output type per agent call
+│   ├── agents.ts                load_config, validate, resolve entry → interface + model + thinking
+│   ├── runner.ts                the Run object: run.phase(PhaseParams) → ph.call(AgentCall)
+│   ├── agent_pi.ts              Pi interface (v1)   ·   agent_cc.ts  Claude Code (v2, stubbed)
+│   ├── gates.ts                 gate(envelope, run) -> GateReport — one check per item verified
+│   ├── changes.ts               git diff vs a resolved base → ChangeSet → envelope for the documenter
+│   ├── prompts.ts, session.ts, tracer.ts, console.ts, git_helper.ts, utils.ts
 └── adw_data/
     ├── prompt_engineering/{agent}/{system.md,user.md}   tracked — edit prompts HERE, never in the skill
     │                                planner · builder · scout · reviewer · documenter
@@ -41,7 +41,7 @@ adws/
 
 ## The phase model
 
-Every ADW run is a sequence of **phases**, each one `with run.phase(PhaseParams(...))`. Three kinds, three swim lanes:
+Every ADW run is a sequence of **phases**, each one `await run.phase(PhaseParams({...}), body)`. Three kinds, three swim lanes:
 
 - **engineer** — the human lane; today the system-input phase (who asked, and for what).
 - **agent** — `ph.call(AgentCall(...))`: prompt in → typed envelope out → gates verified.
@@ -53,20 +53,20 @@ Every ADW run is a sequence of **phases**, each one `with run.phase(PhaseParams(
 
 Agents have exactly two output channels: reference files written into `context_handoff/`, and a **final valid-JSON response** parsed against the output type the call declared. Code persists it as `envelope.json` and injects it into the next agent's `user.md` via `{{previous_envelope}}`. Bad JSON is never a restart — the harness re-prompts the *same session, context intact*, until it parses (bounded). See `references/handoff.md`.
 
-**The output contract is a synced triad**: the type in `data_types.py` ↔ the `## Report` JSON example in the agent's `user.md` ↔ `output_type=` at the call site. Editing any one of the three means editing all three in the same change — drift between them taxes every call with correction retries.
+**The output contract is a synced triad**: the type in `data_types.ts` ↔ the `## Report` JSON example in the agent's `user.md` ↔ `output_type=` at the call site. Editing any one of the three means editing all three in the same change — drift between them taxes every call with correction retries.
 
 ## Running an ADW
 
 ```bash
-uv run adws/adw_plan.py "add a /health endpoint"
-uv run adws/adw_plan_build.py requests/health.md --adw-id a1b2c3d4
+bun adws/adw_plan.ts "add a /health endpoint"
+bun adws/adw_plan_build.ts requests/health.md --adw-id a1b2c3d4
 ```
 
 The prompt is inline text or a file path. `--adw-id` is optional on every ADW: given one, the run joins that session (same dirs, same `context_handoff/`, agents resume their existing context windows); omitted, a fresh id is minted and printed.
 
 ## When you have finished reading this
 
-You are done with startup. List the ADWs (`ls adws/adw_*.py`, plus each `Phases:` docstring line) as a table, and **wait for the engineer's request.**
+You are done with startup. List the ADWs (`ls adws/adw_*.ts`, plus each `Phases:` docstring line) as a table, and **wait for the engineer's request.**
 
 Do not survey anything else — not the trace db, not the config, not past runs, not the repo tree. You do not yet know what the request is, so anything you gather now is a guess about what will matter, spent from the context the real work needs. Every cookbook and reference below is lazy-loaded, one per request, and that is the whole design.
 

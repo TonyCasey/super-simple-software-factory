@@ -1,7 +1,7 @@
 # Super Simple Software Factory
 
 > **Repeatable agents-plus-code workflows, packaged as one skill, stamped into any repo.**
-> Deterministic Python owns the graph. Coding agents are bounded nodes inside it.
+> Deterministic TypeScript owns the graph. Coding agents are bounded nodes inside it.
 
 📺 Full breakdown on YouTube: **[Super Simple Software Factory](https://youtu.be/haUfb1ievTE)**
 
@@ -15,7 +15,7 @@
 
 A software factory does one thing: it gives you more leverage on your prompt. How much leverage depends entirely on what you invest in it. At the low end you chain two agents together and hope. At the high end you build a system of agents plus code that runs without you, and does the job about as well as you would.
 
-Everyone can get an agent to write code once. Almost nobody gets the same result twice. This fixes that by moving the control plane out of the prompt and into Python. An ADW script (AI Developer Workflow) owns sequencing, retries, and acceptance. Agents work inside named phases. Typed JSON envelopes carry context across the seams. Every event streams into SQLite while it is still happening. **Agent proposes, code disposes.**
+Everyone can get an agent to write code once. Almost nobody gets the same result twice. This fixes that by moving the control plane out of the prompt and into TypeScript. An ADW script (AI Developer Workflow) owns sequencing, retries, and acceptance. Agents work inside named phases. Typed JSON envelopes carry context across the seams. Every event streams into SQLite while it is still happening. **Agent proposes, code disposes.**
 
 > [!NOTE]
 > **This branch is the skill alone**, which is the thing you install. For a repo with the factory already stamped into it, a demo app it planned, built, tested, reviewed, and documented, and the real traces from those runs, see the **[`example` branch](../../tree/example)**.
@@ -58,7 +58,7 @@ Copy `.claude/skills/sssf/` into the target repo and type `/sssf install` inside
 
 ### Manual Install
 
-**Prereqs:** [`uv`](https://docs.astral.sh/uv/), [`pi`](https://github.com/mariozechner/pi-coding-agent), `sqlite3`, and an API key for whichever providers your roster names (see below). [`bun`](https://bun.sh) only if you want the visualizer.
+**Prereqs:** [`bun`](https://bun.sh), [`pi`](https://github.com/mariozechner/pi-coding-agent), `sqlite3`, and an API key for whichever providers your roster names (see below). Bun runs the ADWs, the visualizer, and nothing else needs installing — `install.ts` fetches the one dependency (zod) into `adws/` for you.
 
 ```bash
 # 1. get the skill into the target repo
@@ -66,7 +66,7 @@ mkdir -p .claude/skills
 cp -r /path/to/super-simple-software-factory/.claude/skills/sssf .claude/skills/
 
 # 2. stamp the factory (run from the target repo ROOT, the cwd is where everything lands)
-uv run .claude/skills/sssf/scripts/install.py
+bun .claude/skills/sssf/scripts/install.ts
 cp .env.sample .env                              # then set OPENROUTER_API_KEY
 pi --version                                     # confirm pi is on PATH, or set PI_PATH in .env
 git init && git commit --allow-empty -m init     # chains that end in a commit phase need a repo
@@ -74,13 +74,13 @@ git init && git commit --allow-empty -m init     # chains that end in a commit p
 # 3. smoke test: two cheap read-only runs, end to end
 just demo
 just sessions              # what just happened
-just obs                   # the trace UI, needs bun
+just obs                   # the trace UI
 
 # no just? every recipe is one line. the raw form of `just demo` is:
-uv run adws/adw_prompt.py "reply with a one-line summary of this repo" --agent scout
+bun adws/adw_prompt.ts "reply with a one-line summary of this repo" --agent scout
 ```
 
-Re-running `install.py` is safe. It skips every file that already exists and reports what it skipped, so a second run doubles as a drift check. `--force` refreshes stamped code to the skill's current version, but it overwrites **all** stamped files including your `sssf.config.yaml` and your prompts, so commit first.
+Re-running `install.ts` is safe. It skips every file that already exists and reports what it skipped, so a second run doubles as a drift check. `--force` refreshes stamped code to the skill's current version, but it overwrites **all** stamped files including your `sssf.config.yaml` and your prompts, so commit first.
 
 Green on the smoke test means the whole path works: config validated, session minted, Pi ran, envelope parsed, events landed in `adws/adw_data/sssf.db`. Fix it there before composing anything larger, because every multi-agent chain rides this exact path.
 
@@ -128,7 +128,7 @@ Everything lives in `.claude/skills/sssf/`. `SKILL.md` carries the hard rules an
 | What lands in your repo | Where it comes from | Tracked |
 |---|---|---|
 | `adws/adw_sssf_config/sssf.config.yaml` | `templates/sssf.config.yaml` | yes, it is your agent roster |
-| `adws/adw_*.py` | `templates/adws/` | yes, twelve starter workflows |
+| `adws/adw_*.ts` | `templates/adws/` | yes, twelve starter workflows |
 | `adws/adw_modules/` | `templates/adws/adw_modules/` | yes, all low-level logic |
 | `adws/adw_data/prompt_engineering/` | `templates/prompt_engineering/` | yes, **your prompts live here** |
 | `adws/adw_data/harness_engineering/` | `templates/harness_engineering/` | yes, pi extensions |
@@ -138,7 +138,7 @@ Everything lives in `.claude/skills/sssf/`. `SKILL.md` carries the hard rules an
 
 The prompts are yours the moment they land. Edit them in `adws/adw_data/prompt_engineering/{agent}/`, never back inside the skill.
 
-There is no DSL here. No framework to learn. It is Python, YAML, agents, and a skill, which is exactly what these models are already trained on. Staying in distribution is a feature.
+There is no DSL here. No framework to learn. It is TypeScript, YAML, agents, and a skill, which is exactly what these models are already trained on. Staying in distribution is a feature.
 
 ---
 
@@ -154,7 +154,7 @@ defaults:
   protected_files:                 # no agent may edit the machinery that grades it
     - adws/adw_modules/
     - adws/adw_sssf_config/
-    - adws/adw_*.py
+    - adws/adw_*.ts
   data_dir: adws/adw_data
 
 agents:
@@ -188,26 +188,32 @@ Config defines who an agent **is**. The ADW call site defines how it is **used**
   <img src="images/04_phase_lanes.svg" alt="Swim lanes for engineer, git, planner, builder, and reviewer with phase blocks placed on a time axis and one dashed queued block" width="780">
 </p>
 
-Every run is a sequence of phases, and every phase is the same context manager no matter who owns it.
+Every run is a sequence of phases, and every phase is the same primitive no matter who owns it.
 
-```python
-REQUIRED_AGENTS = ["planner", "builder", "reviewer"]   # names, never models
+```typescript
+const REQUIRED_AGENTS = ["planner", "builder", "reviewer"];  // names, never models
 
-cfg = agents.load_config(config)
-agents.validate(cfg, REQUIRED_AGENTS)   # a missing agent fails before anything spawns
-run = session.ensure(cfg, adw_id)       # pin-or-create the session
+const cfg = agents.load_config(config);
+agents.validate(cfg, REQUIRED_AGENTS);   // a missing agent fails before anything spawns
+const run = session.ensure(cfg, adw_id); // pin-or-create the session
 
-with run.phase(PhaseParams(name="plan", kind="agent", owner="planner",
-                           description="Turn the request into an implementable plan")) as ph:
-    plan = ph.call(AgentCall(output_type=PlanOutput, prompt=prompt,
-                             gates=[gates.artifacts_exist, gates.files_non_empty]))
+const plan = await run.phase(
+  PhaseParams({ name: "plan", kind: "agent", owner: "planner",
+                description: "Turn the request into an implementable plan" }),
+  (ph) => ph.call(AgentCall({ output_type: PlanOutput, prompt,
+                              gates: [gates.artifacts_exist, gates.files_non_empty] })),
+);
 
-with run.phase(PhaseParams(name="commit", kind="code", owner="git",
-                           description="Commit the working tree")) as ph:
-    message = build.commit_message or f"sssf({run.adw_id}): {build.summary}"
-    ph.log(sha=git_helper.commit_all(message), message=message)
+await run.phase(
+  PhaseParams({ name: "commit", kind: "code", owner: "git",
+                description: "Commit the working tree" }),
+  (ph) => {
+    const message = build.commit_message || `sssf(${run.adw_id}): ${build.summary}`;
+    ph.log({ sha: git_helper.commit_all(message), message });
+  },
+);
 
-return run.finish(accepted=review.approved, reason="the reviewer never approved")
+return run.finish(review.approved, "the reviewer never approved");
 ```
 
 Three kinds, three swim lanes. **engineer** is the human lane. **agent** is `ph.call(...)`: prompt in, typed envelope out, gates verified. **code** is a deterministic step that stands on its own, like a commit or a migration, and it is never buried inside an agent phase, so the trace shows exactly when code ran and when an agent was working.
@@ -226,17 +232,21 @@ That commit phase is the whole pattern in miniature. The builder proposes the me
 
 An agent has exactly two output channels: reference files written into `context_handoff/`, and a final valid-JSON response parsed against the output type the call declared. Code persists that response as `envelope.json`, records it, and injects it into the next agent's prompt. Context transfers in code, not in conversation.
 
-```python
-class EnvelopeBase(BaseModel):
-    status: Literal["success", "fail"]
-    summary: str = ""
-    artifacts: list[str] = Field(default_factory=list)
-    notes_for_next_agent: str = ""
+```typescript
+const EnvelopeBaseSchema = z.object({
+  status: z.enum(["success", "fail"]),
+  summary: z.string().default(""),
+  artifacts: z.array(z.string()).default([]),
+  notes_for_next_agent: z.string().default(""),
+});
 
-class BuildOutput(EnvelopeBase):
-    changed_files: list[str] = Field(default_factory=list)
-    commit_message: str = ""        # consumed by the git commit phase
+export const BuildOutput = outputType("BuildOutput", EnvelopeBaseSchema.extend({
+  changed_files: z.array(z.string()).default([]),
+  commit_message: z.string().default(""),   // consumed by the git commit phase
+}));
 ```
+
+Field names stay snake_case throughout. They are quoted verbatim in every agent's `## Report` section and stored in the trace, so they are a wire contract with the models and the UI, not a style choice.
 
 Determinism is wired into every step. Agents must return a specific structure, every time. If it does not parse, they get asked again until it does.
 
@@ -244,17 +254,17 @@ Gates verify claims, never predictions. Nobody knows which files an agent will t
 
 When JSON does not parse or a gate returns violations, **nothing restarts**. The harness re-prompts the same session with a correction naming exactly what was wrong, and the context window stays intact. Pi treats `--session-id` as create-or-continue, so running an agent and continuing it are the same call. A cold restart throws away everything the agent learned. A correction costs one message.
 
-The output contract lives in three places and they are one thing: the type in `data_types.py`, the JSON example in that agent's `user.md` `## Report` section, and `output_type=` at the call site. **Change one, change all three in the same edit.**
+The output contract lives in three places and they are one thing: the type in `data_types.ts`, the JSON example in that agent's `user.md` `## Report` section, and `output_type=` at the call site. **Change one, change all three in the same edit.**
 
 ---
 
 ## The trace
 
 <p align="center">
-  <img src="images/06_trace_path.svg" alt="Running agents to tracer.py to a WAL SQLite db with seven tables, read by a cursor poll query, with no websocket and no ingest endpoint" width="780">
+  <img src="images/06_trace_path.svg" alt="Running agents to tracer.ts to a WAL SQLite db with seven tables, read by a cursor poll query, with no websocket and no ingest endpoint" width="780">
 </p>
 
-One data path, no exceptions: **agents write to SQLite, readers poll SQLite.** `agent_pi.py` tails the coding agent's JSONL stdout line by line and the tracer inserts each event while the agent is still working, so tool calls are visible mid-run instead of batched at the end.
+One data path, no exceptions: **agents write to SQLite, readers poll SQLite.** `agent_pi.ts` tails the coding agent's JSONL stdout line by line and the tracer inserts each event while the agent is still working, so tool calls are visible mid-run instead of batched at the end.
 
 Ten event types land across seven tables: `sessions`, `phases`, `events`, `envelopes`, `gate_results`, `agent_sessions`, and `processes` (adw_id to pid, so a stuck run can be found and stopped). Every event logs against both its `adw_id` and its `phase_id`, and `parent_id` nests spans, so an agent phase expands into its own tool calls.
 
@@ -288,14 +298,15 @@ super-simple-software-factory/          # the deployable factory, and nothing el
     ├── SKILL.md                        # hard rules + request routing table
     ├── cookbooks/                      # 9 orchestrator playbooks, loaded lazily
     ├── references/                     # config / handoff / observability specs
-    ├── scripts/                        # install.py, make_config.py, make_adw.py
+    ├── scripts/                        # install.ts, make_config.ts, make_adw.ts
     ├── apps/visualizer/                # the read-only trace UI (Vue + Vite on Bun)
-    └── templates/                      # EXACTLY what install.py stamps
+    └── templates/                      # EXACTLY what install.ts stamps
         ├── sssf.config.yaml            # the starter roster
         ├── prompt_engineering/{agent}/ # system.md + user.md per agent
         ├── harness_engineering/        # pi extensions
         └── adws/
-            ├── adw_*.py                # the twelve starter workflows
+            ├── package.json            # the one dependency: zod
+            ├── adw_*.ts                # the twelve starter workflows
             └── adw_modules/            # ALL low-level logic, ADW scripts stay thin
 ```
 
@@ -308,7 +319,7 @@ The skill is also what an agent reads to *operate* the factory. `SKILL.md` is th
 Every ADW takes the same shape:
 
 ```bash
-uv run adws/adw_*.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+bun adws/adw_*.ts "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
 ```
 
 | ADW | Chain | Reach for it when |
@@ -331,8 +342,8 @@ uv run adws/adw_*.py "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_con
 `--adw-id` is optional everywhere. Omit it and a fresh id is minted and printed. Supply it and the run joins that session: same dirs, same `context_handoff/`, and each agent **resumes its existing context window** through `agent_map.json` instead of starting cold. That is how you chain workflows.
 
 ```bash
-uv run adws/adw_plan.py "add a /health endpoint"              # prints adw_id a1b2c3d4
-uv run adws/adw_build_test.py "implement the plan" --adw-id a1b2c3d4
+bun adws/adw_plan.ts "add a /health endpoint"              # prints adw_id a1b2c3d4
+bun adws/adw_build_test.ts "implement the plan" --adw-id a1b2c3d4
 ```
 
 Watch a run with the trace db directly:
@@ -343,7 +354,7 @@ sqlite3 adws/adw_data/sssf.db "select seq, name, kind, owner, status from phases
 sqlite3 adws/adw_data/sssf.db "select kind, name, pid, command from processes where adw_id='a1b2c3d4' and ended_at is null;"
 ```
 
-Reads never block a running workflow, the db is WAL. `install.py` stamps a `justfile` wrapping all of the above, so in a fresh repo these are `just sessions`, `just phases <adw_id>`, `just tail <adw_id>`, and `just procs <adw_id>`.
+Reads never block a running workflow, the db is WAL. `install.ts` stamps a `justfile` wrapping all of the above, so in a fresh repo these are `just sessions`, `just phases <adw_id>`, `just tail <adw_id>`, and `just procs <adw_id>`.
 
 ---
 
@@ -353,16 +364,16 @@ Honest edges, because knowing them is cheaper than discovering them.
 
 | Failure | What actually happens | What to do |
 |---|---|---|
-| The test phase reports green on a fresh install | `quality.py` ships placeholder commands that exit 0. Three ADWs run them as their test phase | Wire your real commands into `quality.py` before trusting `adw_build_test`, `adw_plan_build_test`, or `adw_simple_sdlc`. This is the first thing to customize |
+| The test phase reports green on a fresh install | `quality.ts` ships placeholder commands that exit 0. Three ADWs run them as their test phase | Wire your real commands into `quality.ts` before trusting `adw_build_test`, `adw_plan_build_test`, or `adw_simple_sdlc`. This is the first thing to customize |
 | A bare model pattern | The same model sits under several providers, so `gemini-3.6-flash` matches three catalog entries and `agents.validate()` refuses to spawn | Always write `provider/model-id` |
-| `just` is not installed | The stamped `justfile` is a convenience wrapper, nothing depends on it | Every recipe is a one-line `uv run` or `sqlite3` command. Open the justfile and run the line yourself |
+| `just` is not installed | The stamped `justfile` is a convenience wrapper, nothing depends on it | Every recipe is a one-line `bun` or `sqlite3` command. Open the justfile and run the line yourself |
 | A coding agent hangs silently | No events, no tokens, an empty `raw_output.jsonl`. The trace goes quiet rather than red | Query `processes` for what is alive and kill it children-first. A killed run finalizes its own trace to `fail` |
 | The synced triad drifts | Type, `## Report` example, and `output_type=` disagree, so every call burns correction rounds | Grep the type name and fix all three in one edit |
 | Gates pass, output is bad | Gates check what a predicate can check, not plan quality or code taste | Run the `reviewer`, or read it yourself |
 | An agent edits something it should not | Detected and rolled back after the call, and the phase fails | Expected. Widen that agent's `writes` if the change was legitimate |
 | Commit phase has nothing to commit | `commit_all` raises if the cwd is not a git repo or nothing changed | `git init` with one commit first. A no-op build fails the phase rather than committing nothing |
-| `install.py --force` | Overwrites **all** stamped files, config and prompts included | Commit before you force |
-| `coding_agent: claude_code` | Schema-valid, but `agent_cc.py` raises | v1 is Pi only |
+| `install.ts --force` | Overwrites **all** stamped files, config and prompts included | Commit before you force |
+| `coding_agent: claude_code` | Schema-valid, but `agent_cc.ts` raises | v1 is Pi only |
 
 Also missing on purpose, so you know what to add: this runs on your current branch. For real work you want a branch per run, a sandbox around the agent, and a merge step at the end.
 
@@ -380,11 +391,11 @@ Where to start, roughly in the order that pays off fastest:
 
 | Change | File | Why |
 |---|---|---|
-| Your real commands | `adws/adw_modules/quality.py` | The shipped blocks are placeholders that exit 0. Until you wire this, your test phase is theater |
+| Your real commands | `adws/adw_modules/quality.ts` | The shipped blocks are placeholders that exit 0. Until you wire this, your test phase is theater |
 | Your prompts | `adws/adw_data/prompt_engineering/{agent}/` | Where your standards live: what a good plan looks like, what a review has to catch |
 | Your roster | `adws/adw_sssf_config/sssf.config.yaml` | Models, thinking levels, tools, and what each agent is allowed to write |
-| Your chains | `adws/adw_*.py` | Copy the closest workflow and edit the phase list. They are 40 to 180 lines on purpose |
-| Your definition of done | `adws/adw_modules/gates.py` | A gate is one function. Whatever "done" means where you work, write it here |
+| Your chains | `adws/adw_*.ts` | Copy the closest workflow and edit the phase list. They are 40 to 180 lines on purpose |
+| Your definition of done | `adws/adw_modules/gates.ts` | A gate is one function. Whatever "done" means where you work, write it here |
 | Your agent capabilities | `adws/adw_data/harness_engineering/` | Pi extensions, a different set per agent if that is what the job needs |
 
 And what it deliberately does not do. It runs on your current branch. There is no sandbox, no branch per run, no merge step, no cloud, and no human-in-the-loop approval phase. Those are the obvious next things to build. They are left out so the core stays small enough to read in one sitting, which is the only reason you would trust it enough to change it.

@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ESNext"],
+    "types": ["bun"],
+
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "noEmit": true
+  },
+  "//": [
+    "Scoped to the control plane on purpose. adw_data/ holds the session runtime and",
+    "harness_engineering/ — pi extensions, which import pi's own packages and are",
+    "compiled by pi, not by this project. Including them would make `bun run typecheck`",
+    "fail in every stamped repo over code that is not ours to type."
+  ],
+  "include": ["adw_*.ts", "adw_modules/**/*.ts"],
+  "exclude": ["node_modules", "adw_data"]
+}

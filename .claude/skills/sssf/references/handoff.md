@@ -15,31 +15,34 @@ Code does the rest: parse the response against the output type the call declared
 
 Every output type extends `EnvelopeBase`:
 
-```python
-class EnvelopeBase(BaseModel):
-    status: Literal["success", "fail"]  # the only required field
-    summary: str = ""                   # one sentence: what happened
-    artifacts: list[str] = []           # paths written, usually inside context_handoff/
-    notes_for_next_agent: str = ""      # what the next agent must know
+```typescript
+const EnvelopeBaseSchema = z.object({
+  status: z.enum(["success", "fail"]),        // the only required field
+  summary: z.string().default(""),            // one sentence: what happened
+  artifacts: z.array(z.string()).default([]), // paths written, usually inside context_handoff/
+  notes_for_next_agent: z.string().default(""), // what the next agent must know
+});
 ```
 
-`status` is load-bearing: an envelope that parses but reports `status="fail"` raises, failing the phase. An agent declaring its own failure is not a successful phase.
+`status` is load-bearing: an envelope that parses but reports `status="fail"` throws, failing the phase. An agent declaring its own failure is not a successful phase.
 
-The starter types in `adw_modules/data_types.py`:
+The starter types in `adw_modules/data_types.ts`:
 
-```python
-class GenericOutput(EnvelopeBase):
-    """Fallback for an agent with no sharper contract yet."""
+```typescript
+// Fallback for an agent with no sharper contract yet.
+export const GenericOutput = outputType("GenericOutput", EnvelopeBaseSchema.extend({}));
 
-class PlanOutput(EnvelopeBase):
-    commit_message: str = ""            # imperative git subject for the PLAN FILE itself
+export const PlanOutput = outputType("PlanOutput", EnvelopeBaseSchema.extend({
+  commit_message: z.string().default(""),        // imperative git subject for the PLAN FILE itself
+}));
 
-class BuildOutput(EnvelopeBase):
-    changed_files: list[str] = []
-    commit_message: str = ""            # consumed by the git commit phase
+export const BuildOutput = outputType("BuildOutput", EnvelopeBaseSchema.extend({
+  changed_files: z.array(z.string()).default([]),
+  commit_message: z.string().default(""),        // consumed by the git commit phase
+}));
 
-class ScoutOutput(EnvelopeBase):
-    findings: list[ScoutFinding] = []   # ScoutFinding: {file: str, note: str}
+export const ScoutOutput = outputType("ScoutOutput", EnvelopeBaseSchema.extend({
+  findings: z.array(ScoutFindingSchema).default([]),  // ScoutFinding: {file, note}
 
 class ReviewOutput(EnvelopeBase):
     approved: bool = False              # the verdict; status is only "did the review run"
@@ -54,7 +57,7 @@ class DocumentOutput(EnvelopeBase):
 
 `commit_message` defaults to empty, so a git phase consuming it always needs a fallback — see `cookbooks/create_adw.md`.
 
-**Each `commit_message` describes its own agent's work product, never the next one's**: `PlanOutput`'s covers the spec file, `BuildOutput`'s the code, `DocumentOutput`'s the write-up. A chain that commits once can use whichever fits; a chain that commits per step (`adw_simple_sdlc.py`) needs all three, and reusing one agent's sentence for another's diff is how a commit log starts lying.
+**Each `commit_message` describes its own agent's work product, never the next one's**: `PlanOutput`'s covers the spec file, `BuildOutput`'s the code, `DocumentOutput`'s the write-up. A chain that commits once can use whichever fits; a chain that commits per step (`adw_simple_sdlc.ts`) needs all three, and reusing one agent's sentence for another's diff is how a commit log starts lying.
 
 There is no test output type: running the suite is a `kind="code"` phase, and its `QualityResult` reaches the next agent through `quality.as_envelope`.
 
@@ -66,20 +69,21 @@ The envelope is a **manifest of claims**. Gates verify those claims after the fa
 
 **Every agent call passes a concrete output type**, and the agent's final JSON is parsed against exactly that type. No untyped handoffs.
 
-```python
-plan = ph.call(AgentCall(output_type=PlanOutput, prompt=prompt,
-                         gates=[gates.artifacts_exist]))
+```typescript
+const plan = await ph.call(AgentCall({
+  output_type: PlanOutput, prompt, gates: [gates.artifacts_exist],
+}));
 ```
 
 The user prompt asks for the shape; the type enforces it. They always travel as a pair, which is what lets one agent serve many calls — same system prompt, different user prompt + output type per call site. Output types live in code, never in `sssf.config.yaml`.
 
-**Parse failure is not a restart.** If the response doesn't parse or doesn't validate, the harness re-prompts the **same session** with a correction naming the required fields — bounded by `JSON_FIX_ATTEMPTS` in `agents.py` (2). Gate violations use the identical mechanism, bounded instead by the phase's `retries`. A cold restart would throw away the context that produced the near-miss.
+**Parse failure is not a restart.** If the response doesn't parse or doesn't validate, the harness re-prompts the **same session** with a correction naming the required fields — bounded by `JSON_FIX_ATTEMPTS` in `agents.ts` (2). Gate violations use the identical mechanism, bounded instead by the phase's `retries`. A cold restart would throw away the context that produced the near-miss.
 
 In v1 there is no separate continue call to make: `agent_pi.run()` passes `--session-id`, which pi treats as create-or-continue, so running an agent and continuing it are the same call with the same id. Before parsing, the harness also tolerates a fenced `json` code block or prose wrapped around the object — but the prompt still asks for bare JSON, and every failed attempt is persisted as an invalid envelope row.
 
 ## Injecting the previous envelope
 
-`prompts.py` renders the agent's `user.md`, substituting:
+`prompts.ts` renders the agent's `user.md`, substituting:
 
 | Placeholder | Value |
 |---|---|
@@ -154,7 +158,7 @@ adws/adw_data/sessions/{adw_id}/
 }
 ```
 
-This map is the key that lets a later ADW rejoin each agent's **existing context window**. Run `adw_build.py --adw-id a1b2c3d4` after `adw_plan.py` and the builder resumes its own session rather than starting cold.
+This map is the key that lets a later ADW rejoin each agent's **existing context window**. Run `adw_build.ts --adw-id a1b2c3d4` after `adw_plan.ts` and the builder resumes its own session rather than starting cold.
 
 The map records the model each session was created with. If config drift changes an agent's model, that agent starts a **fresh** session and the map is updated — never a bad resume. `agent_sessions` in `sssf.db` is the queryable mirror of this file.
 

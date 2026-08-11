@@ -12,13 +12,13 @@ The ADW is the worker. Your job is to launch it, watch the trace, and tell the e
 
 ## Launch
 
-Which chain to launch is decided in `how_to_prompt_for_the_eng.md`, and the short version is: **the ADW the engineer named, or else the most complete composed chain the work justifies — never a single-agent one.** Read `ls adws/adw_*.py` and the `Phases:` line in each docstring to see what this repo has; the names below are shape, not a menu.
+Which chain to launch is decided in `how_to_prompt_for_the_eng.md`, and the short version is: **the ADW the engineer named, or else the most complete composed chain the work justifies — never a single-agent one.** Read `ls adws/adw_*.ts` and the `Phases:` line in each docstring to see what this repo has; the names below are shape, not a menu.
 
 ```bash
-uv run adws/<end-to-end-chain>.py "add a /health endpoint"
-uv run adws/<plan-build-verify-chain>.py requests/health.md
-uv run adws/<build-first-chain>.py "implement the plan" --adw-id a1b2c3d4
-uv run adws/<recon-chain>.py "where is auth handled" --config path/to/other.config.yaml
+bun adws/<end-to-end-chain>.ts "add a /health endpoint"
+bun adws/<plan-build-verify-chain>.ts requests/health.md
+bun adws/<build-first-chain>.ts "implement the plan" --adw-id a1b2c3d4
+bun adws/<recon-chain>.ts "where is auth handled" --config path/to/other.config.yaml
 ```
 
 The prompt is inline text or a file path. Launch in the background so you can poll while it works; the `adw_id` is printed on startup — capture it, everything else keys off it.
@@ -55,7 +55,7 @@ They will rarely say `--config`. Treat any of these as naming a roster, then res
 `--config` takes the path directly; the justfile recipes read `SSSF_CONFIG` instead:
 
 ```bash
-uv run adws/<chain>.py "<prompt>" --config adws/adw_sssf_config/sssf.frontier.config.yaml
+bun adws/<chain>.ts "<prompt>" --config adws/adw_sssf_config/sssf.frontier.config.yaml
 SSSF_CONFIG=adws/adw_sssf_config/sssf.frontier.config.yaml just <recipe> "<prompt>"
 ```
 

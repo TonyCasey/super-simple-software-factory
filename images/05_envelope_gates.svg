@@ -96,7 +96,7 @@
     <text filter="url(#ts5)" class="hd3" x="40" y="368">The output contract is one thing in three places. Change one, change all three.</text>
 
     <rect x="40" y="392" width="320" height="96" rx="11" fill="#0F172A" stroke="#38BDF8" stroke-width="1.8"/>
-    <text filter="url(#ts5)" class="nd mono" x="60" y="420">data_types.py</text>
+    <text filter="url(#ts5)" class="nd mono" x="60" y="420">data_types.ts</text>
     <text filter="url(#ts5)" class="js mono" x="60" y="442">class BuildOutput(EnvelopeBase):</text>
     <text filter="url(#ts5)" class="js mono" x="60" y="462">&#160;&#160;&#160;&#160;changed_files: list[str]</text>
     <text filter="url(#ts5)" class="js mono" x="60" y="482">&#160;&#160;&#160;&#160;commit_message: str</text>
