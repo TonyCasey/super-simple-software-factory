@@ -42,19 +42,19 @@ const props = defineProps<{
 defineEmits<{ close: [] }>()
 
 const phaseEvents = computed(() =>
-  props.events.filter((e) => e.phase_id === props.phase.phase_id).sort((a, b) => a.rowid - b.rowid),
+  props.events.filter((e) => e.phase_id === props.phase.phase_id).toSorted((a, b) => a.rowid - b.rowid),
 )
 
 const phaseGates = computed(() =>
   props.gates
     .filter((g) => g.phase_id === props.phase.phase_id)
-    .sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0) || a.id - b.id),
+    .toSorted((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0) || a.id - b.id),
 )
 
 const phaseOutputs = computed(() =>
   props.envelopes
     .filter((e) => e.phase_id === props.phase.phase_id)
-    .sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0)),
+    .toSorted((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0)),
 )
 
 // The agent's configuration, carried on its phase's `agent_start` event.
