@@ -28,7 +28,7 @@ Run from the **target repo root** — the cwd is where everything lands. If the 
 
 The two `*_engineering` dirs mirror the two config keys of the same name: `prompt_engineering` is what an agent is told, `harness_engineering` is what its harness can do. Both are yours the moment they are stamped. Edit them in `adws/adw_data/`, never back inside the skill.
 
-`harness_engineering/` ships with `subagents.ts` — the pi extension backing `subagent_create` / `_continue` / `_list` / `_remove`, wired to the planner and scout in the starter roster.
+`harness_engineering/` ships with `subagents.ts` — the pi extension backing `subagent_create` / `_continue` / `_list` / `_remove`. **Nothing in the starter roster uses it**, because that roster is entirely `coding_agent: claude_code` and only pi loads extensions. It is stamped ready for a pi agent; wiring it up is three edits, not one — see the commented `challenger` agent in `sssf.config.yaml`.
 
 ## Idempotency
 

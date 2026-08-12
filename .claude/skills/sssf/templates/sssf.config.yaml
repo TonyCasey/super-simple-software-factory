@@ -156,6 +156,14 @@ agents:
   #     exactly like builtins, so an extension's tool MUST be named here or it
   #     loads and is then silently filtered out.
   #
+  # Enabling an extension's tools is THREE edits, not one: the file path in
+  # `harness_engineering`, every tool it registers in `tools`, and a line in that
+  # agent's system.md telling it when to reach for them. Miss the third and the
+  # agent has a capability nobody told it about; miss it in reverse — a prompt
+  # naming tools the agent lacks — and it burns turns calling something that
+  # isn't there. The starter prompts carry no subagent guidance for exactly this
+  # reason: the default roster is claude_code, which has no subagent_* tools.
+  #
   # - name: challenger
   #   coding_agent: pi
   #   model: openai/gpt-5.6-terra  # ALWAYS provider/id — a bare id matches several providers
