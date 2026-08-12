@@ -474,7 +474,7 @@ export interface EventRecord {
   ended_at?: string | null;
 }
 
-// ── Pi coding agent interface ────────────────────────────────────────────────
+// ── Coding agent interface ───────────────────────────────────────────────────
 
 /** Everything one non-interactive pi run needs. */
 export interface PiRequest {
@@ -566,4 +566,40 @@ export interface PiResult {
   // visualizer's context bar measures against `context_window`.
   context_tokens: number;
   context_window: number; // 0 when the registry declares no ceiling
+}
+
+/**
+ * Coding-agent-neutral names for the request/result wire shapes.
+ *
+ * PiRequest/PiResult stay the canonical DECLARATIONS — they are the wire
+ * contract the tracer, the visualizer, and every envelope already speak, and
+ * renaming them would rewrite that contract for a second adapter's benefit.
+ * Adapters other than pi (`agent_cc.ts`) use these aliases instead, so nothing
+ * in a Claude Code file has to claim to be pi.
+ *
+ * One field shifts meaning across adapters: `session_dir`. For pi it is where
+ * the sessions themselves live; for Claude Code the transcripts live under
+ * `~/.claude` and the directory holds only this run's session-id marker and the
+ * rendered system prompt.
+ */
+export type AgentRequest = PiRequest;
+export type AgentResult = PiResult;
+
+/**
+ * The four symbols every coding-agent module exports. `agents.ts` dispatches on
+ * `coding_agent` through a map typed by this, so a half-built adapter is a
+ * compile error rather than a runtime surprise mid-run.
+ */
+export interface CodingAgent {
+  resolve_model(pattern: string): [string, string];
+  context_window(provider: string, model_id: string): number;
+  ToolCallTracker: new () => {
+    observe(event: Record<string, any>): Record<string, any> | null;
+  };
+  run(
+    request: AgentRequest,
+    on_event?: (event: Record<string, any>) => void,
+    on_spawn?: (pid: number) => void,
+    on_exit?: (pid: number) => void,
+  ): Promise<AgentResult>;
 }

@@ -23,7 +23,7 @@ adws/
 │   ├── data_types.ts            AgentCall, PhaseParams, Phase, Envelope + one output type per agent call
 │   ├── agents.ts                load_config, validate, resolve entry → interface + model + thinking
 │   ├── runner.ts                the Run object: run.phase(PhaseParams) → ph.call(AgentCall)
-│   ├── agent_pi.ts              Pi interface (v1)   ·   agent_cc.ts  Claude Code (v2, stubbed)
+│   ├── agent_pi.ts              Pi interface   ·   agent_cc.ts  Claude Code interface
 │   ├── gates.ts                 gate(envelope, run) -> GateReport — one check per item verified
 │   ├── changes.ts               git diff vs a resolved base → ChangeSet → envelope for the documenter
 │   ├── prompts.ts, session.ts, tracer.ts, console.ts, git_helper.ts, utils.ts
@@ -37,7 +37,7 @@ adws/
     └── sssf.db                  gitignored SQLite trace db the visualizer polls
 ```
 
-**v1 runs Pi only.** `coding_agent: pi`, default model `gemini-3.6-flash`, thinking `medium`. `claude_code` is specced in the config and stubbed in the interface — it lands in v2.
+**Two coding agents, one roster.** The starter roster is entirely `coding_agent: claude_code` — the `claude` CLI on a Claude Pro/Max **subscription** (`claude login`; no API key, and `agent_cc.ts` scrubs one if it finds it): `fable` planner, `sonnet` builder/documenter, `opus` reviewer, `haiku` scout. `coding_agent: pi` runs `pi -p --mode json` on a provider API key, written `provider/model-id`, and is the only interface that loads `harness_engineering` extensions. Everything downstream — envelopes, gates, `writes` enforcement, the trace — is identical either way.
 
 ## The phase model
 

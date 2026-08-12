@@ -12,14 +12,16 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve as resolve_path } from "node:path";
 import { z } from "zod";
 
+import * as agent_cc from "./agent_cc.ts";
 import * as agent_pi from "./agent_pi.ts";
 import type {
   AgentCall,
   AgentConfig,
+  AgentRequest,
+  AgentResult,
+  CodingAgent,
   EnvelopeBase,
   Phase,
-  PiRequest,
-  PiResult,
   SSSFConfig,
 } from "./data_types.ts";
 import { GateReport, SSSFConfigSchema, UsageBreakdown } from "./data_types.ts";
@@ -28,6 +30,22 @@ import * as prompts from "./prompts.ts";
 import { ensure_dir, new_id } from "./utils.ts";
 
 const JSON_FIX_ATTEMPTS = 2; // continue-with-correction attempts for malformed JSON
+
+/**
+ * The one place `coding_agent` becomes a decision. Both adapters export the
+ * same four symbols, so everything downstream — the runner, gates, the tracer,
+ * the visualizer — never learns which one ran.
+ */
+const RUNNERS: Record<AgentConfig["coding_agent"], CodingAgent> = {
+  pi: agent_pi,
+  claude_code: agent_cc,
+};
+
+/** Where each interface keeps its per-agent session state, under the agent dir. */
+const SESSION_DIRS: Record<AgentConfig["coding_agent"], string> = {
+  pi: "pi_sessions", // pi's sessions themselves
+  claude_code: "cc_sessions", // id markers + the rendered system prompt
+};
 
 export class GateFailure extends Error {
   constructor(message: string) {
@@ -73,6 +91,7 @@ export function resolve(cfg: SSSFConfig, name: string): AgentConfig {
 /** Fail fast: every required name must resolve to a usable agent. */
 export function validate(cfg: SSSFConfig, required: string[]): void {
   const problems: string[] = [];
+  let needs_claude_auth = false;
   for (const name of required) {
     let agent: AgentConfig;
     try {
@@ -81,11 +100,26 @@ export function validate(cfg: SSSFConfig, required: string[]): void {
       problems.push(String(error instanceof Error ? error.message : error));
       continue;
     }
-    if (agent.coding_agent !== "pi") {
-      problems.push(
-        `agent ${JSON.stringify(name)}: coding_agent ${JSON.stringify(agent.coding_agent)} ` +
-          `is not implemented in v1 (pi only)`,
-      );
+    if (agent.coding_agent === "claude_code") {
+      needs_claude_auth = true;
+      // Both of these validate green and then fail at RUN time, which is the
+      // worst place to learn about them: harness_engineering entries are pi
+      // extension files that Claude Code has no way to load (the starter
+      // planner and scout carry them), and a tool name outside the mapping
+      // table would silently vanish from the allowlist the agent runs with.
+      if (agent.harness_engineering.length) {
+        problems.push(
+          `agent ${JSON.stringify(name)}: harness_engineering is pi-only — ` +
+            `${JSON.stringify(agent.harness_engineering)} cannot load into claude_code`,
+        );
+      }
+      const unsupported = agent_cc.unsupported_tools(agent.tools);
+      if (unsupported.length) {
+        problems.push(
+          `agent ${JSON.stringify(name)}: tools ${JSON.stringify(unsupported)} have no ` +
+            "claude_code equivalent — use read, bash, edit, write, grep, find, ls",
+        );
+      }
     }
     for (const [label, ref] of [
       ["system", agent.prompt_engineering.system],
@@ -96,12 +130,19 @@ export function validate(cfg: SSSFConfig, required: string[]): void {
       }
     }
     try {
-      agent_pi.resolve_model(agent.model);
+      RUNNERS[agent.coding_agent].resolve_model(agent.model);
     } catch (error) {
       problems.push(
         `agent ${JSON.stringify(name)}: ${error instanceof Error ? error.message : error}`,
       );
     }
+  }
+  // Roster-wide, and asked once however many claude_code agents there are: a
+  // container where the secret never got injected otherwise validates clean and
+  // dies at the first agent, halfway into a chain.
+  if (needs_claude_auth) {
+    const reason = agent_cc.unauthenticated_reason();
+    if (reason) problems.push(`claude_code agents: ${reason}`);
   }
   if (problems.length) {
     throw new ConfigError("config validation failed:\n- " + problems.join("\n- "));
@@ -110,10 +151,11 @@ export function validate(cfg: SSSFConfig, required: string[]): void {
 
 // ── execution ────────────────────────────────────────────────────────────────
 
-/** One agent call: render prompts -> pi run -> typed parse -> gates -> envelope. */
+/** One agent call: render prompts -> agent run -> typed parse -> gates -> envelope. */
 export async function execute<T>(run: any, phase: Phase, call: AgentCall<T>): Promise<T> {
   const agent = resolve(run.cfg, phase.params.owner);
   const agent_dir = ensure_dir(join(run.session_dir, agent.name));
+  const runner = RUNNERS[agent.coding_agent];
 
   const variables = {
     prompt: call.prompt,
@@ -144,29 +186,29 @@ export async function execute<T>(run: any, phase: Phase, call: AgentCall<T>): Pr
   });
   run.console.agent_started(agent.name, agent.model, session_id);
 
-  // Parse retries and gate corrections re-enter the SAME pi session, so the
+  // Parse retries and gate corrections re-enter the SAME agent session, so the
   // last send is the one whose context occupancy is current — while spend is
   // the opposite: every send costs, so usage accumulates across all of them.
-  let latest: PiResult | null = null;
+  let latest: AgentResult | null = null;
   const spent = new UsageBreakdown();
 
-  const send = async (prompt_text: string): Promise<PiResult> => {
-    const request: PiRequest = {
+  const send = async (prompt_text: string): Promise<AgentResult> => {
+    const request: AgentRequest = {
       prompt: prompt_text,
       system_prompt: system_text,
       model: agent.model,
       thinking: agent.thinking,
       session_id,
-      // absolute: these are read by the pi subprocess, which runs in repo_root
-      session_dir: resolve_path(join(agent_dir, "pi_sessions")),
+      // absolute: these are read by the agent subprocess, which runs in repo_root
+      session_dir: resolve_path(join(agent_dir, SESSION_DIRS[agent.coding_agent])),
       raw_output_path: resolve_path(join(agent_dir, "raw_output.jsonl")),
       tools: agent.tools,
       extensions: agent.harness_engineering,
       cwd: run.repo_root,
     };
-    const result = await agent_pi.run(
+    const result = await runner.run(
       request,
-      _event_forwarder(run, phase, agent.name),
+      _event_forwarder(run, phase, agent.name, runner),
       (pid: number) =>
         run.tracer.process_start(
           run.adw_id,
@@ -272,7 +314,7 @@ export async function execute<T>(run: any, phase: Phase, call: AgentCall<T>): Pr
 
   _persist_envelope(run, phase, agent.name, call, envelope, attempt, true);
   run.console.envelope_summary(envelope, call.output_type.name);
-  const context = (latest ?? result) as PiResult;
+  const context = (latest ?? result) as AgentResult;
   run.tracer.agent_session_row(
     run.adw_id,
     agent,
@@ -332,14 +374,14 @@ function _agent_session_id(run: any, agent: AgentConfig): string {
 }
 
 /** One tool_call event per real tool call, with its exact args and result. */
-function _event_forwarder(run: any, phase: Phase, agent_name: string) {
-  const tracker = new agent_pi.ToolCallTracker();
+function _event_forwarder(run: any, phase: Phase, agent_name: string, runner: CodingAgent) {
+  const tracker = new runner.ToolCallTracker();
 
   return (event: Record<string, any>): void => {
     const record = tracker.observe(event);
     if (record === null) return;
     // The call's span rides the columns; duration_ms stays in the payload as
-    // pi's own authoritative number.
+    // the coding agent's own authoritative number.
     const { label, started_at, ended_at, ...payload } = record;
     run.tracer.event({
       adw_id: run.adw_id,
@@ -379,8 +421,8 @@ async function _parse_with_retries<T>(
   run: any,
   phase: Phase,
   call: AgentCall<T>,
-  result: PiResult,
-  send: (prompt: string) => Promise<PiResult>,
+  result: AgentResult,
+  send: (prompt: string) => Promise<AgentResult>,
 ): Promise<{ envelope: EnvelopeBase & T; attempt: number }> {
   for (let attempt = 1; attempt <= JSON_FIX_ATTEMPTS + 1; attempt++) {
     try {

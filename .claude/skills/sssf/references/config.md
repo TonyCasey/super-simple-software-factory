@@ -8,8 +8,8 @@ It lives at **`adws/adw_sssf_config/sssf.config.yaml`** — the default path eve
 
 ```yaml
 defaults:
-  coding_agent: pi
-  model: google/gemini-3.6-flash        # ALWAYS provider/model-id
+  coding_agent: claude_code             # or `pi`
+  model: sonnet                         # claude_code: alias or claude-* id
   thinking: medium
   harness_engineering: []
   tools: [read, bash, edit, write, grep, find, ls]
@@ -21,20 +21,33 @@ observability:
 
 agents:
   - name: planner
-    coding_agent: pi
-    model: google/gemini-3.6-flash        # ALWAYS provider/model-id
+    model: fable                        # inherits coding_agent: claude_code
     thinking: high
     color: "#a78bfa"
     purpose: Turn a request into a plan the builder can implement without asking questions.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/planner/system.md
       user: adws/adw_data/prompt_engineering/planner/user.md
-    harness_engineering:
-      - json-enforcer
+    tools:
+      - read
+      - bash
+
+  - name: challenger                    # a pi agent in the same roster
+    coding_agent: pi
+    model: openai/gpt-5.6-terra         # pi: ALWAYS provider/model-id
+    thinking: high
+    purpose: Review the build from outside the Claude family.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/challenger/system.md
+      user: adws/adw_data/prompt_engineering/challenger/user.md
+    harness_engineering:                # pi only
+      - adws/adw_data/harness_engineering/subagents.ts
     tools:
       - read
       - bash
 ```
+
+The starter roster `install.ts` stamps runs entirely on `claude_code` — `fable` planner, `sonnet` builder and documenter, `opus` reviewer, `haiku` scout — so a fresh install needs `claude login` and no API key at all. The `challenger` above ships commented out; uncomment it to mix in a second provider.
 
 ## Fields
 
@@ -42,11 +55,11 @@ agents:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `coding_agent` | `pi` \| `claude_code` | Which interface runs the agent. **v1 implements `pi` only**; `claude_code` is specced and stubbed in `agent_cc.ts`, landing in v2. |
-| `model` | string | Model id. For Pi, any id registered in `~/.pi/agent/models.json`. Default `gemini-3.6-flash`. |
+| `coding_agent` | `pi` \| `claude_code` | Which interface runs the agent. `pi` runs `pi -p --mode json` (`agent_pi.ts`); `claude_code` runs the `claude` CLI on the operator's **Claude Pro/Max subscription** (`agent_cc.ts`) — see [Claude Code agents](#claude-code-agents). |
+| `model` | string | Model id. For Pi, any id registered in `~/.pi/agent/models.json`. For Claude Code, an alias (`opus`, `sonnet`, `haiku`, `fable`, `best`, `default`), a full `claude-*` id, or either with a `[1m]` long-context suffix. Default `sonnet`. |
 | `thinking` | enum | Reasoning effort — see below. Default `medium`. |
 | `color` | hex string | Lane color for every agent that does not set its own. Default empty — the visualizer falls back to its own palette. |
-| `harness_engineering` | list[string] | Coding-agent extensions. Pi: extension names. Claude Code: reserved (MCP, hooks). |
+| `harness_engineering` | list[string] | Pi extension file paths. **Pi only** — a `claude_code` agent with a non-empty list fails `validate()` before anything spawns. |
 | `tools` | list[string] | Roster-wide tool allowlist. Every agent that omits its own `tools` inherits this. Unset = all tools usable. |
 | `protected_files` | list[string] | Paths **no** agent may modify unless it names them in its own `writes`. Default: `adws/adw_modules/`, `adws/adw_sssf_config/`, `adws/adw_*.ts` — an agent must not be able to edit the machinery that decides whether its work passed. |
 | `data_dir` | path | Runtime home. Sessions land at `{data_dir}/sessions/{adw_id}/{agent_name}/`. Default `adws/adw_data`. |
@@ -85,11 +98,15 @@ Pi's reasoning-effort ladder, lowest to highest:
 off | minimal | low | medium | high | xhigh | max
 ```
 
-Mapped to Pi's reasoning effort control and honored when the model is registered with `reasoning: true` in `~/.pi/agent/models.json`. On a non-reasoning model the setting is inert — no error, no effect. Rough guidance: `high`/`xhigh` for planners and reviewers, `medium` for builders, `low` for mechanical read-and-report agents. (For Claude Code in v2, the same field maps to the thinking budget.)
+Mapped to Pi's reasoning effort control and honored when the model is registered with `reasoning: true` in `~/.pi/agent/models.json`. On a non-reasoning model the setting is inert — no error, no effect. Rough guidance: `high`/`xhigh` for planners and reviewers, `medium` for builders, `low` for mechanical read-and-report agents.
+
+On Claude Code the same field becomes `--effort`, one rung per name, with one wrinkle: **Claude Code has no `off`**, so `off` and `minimal` both map to `low`. An agent you meant to run without thinking still thinks a little.
 
 ## Model resolution
 
-**Always write `model` as `provider/model-id`.** `agents.ts` hands the string to the Pi interface, which resolves it against pi's merged catalog — `~/.pi/agent/models.json` plus pi's built-in providers. The same model is usually carried by more than one provider (`gemini-3.6-flash` lives under `google` *and* under `openrouter` as `google/gemini-3.6-flash`), and a bare id that matches several **throws at resolution**:
+**This section is about `coding_agent: pi` agents.** Claude Code models are checked by shape, not against a catalog — see [Claude Code agents](#claude-code-agents) above.
+
+**For pi, always write `model` as `provider/model-id`.** `agents.ts` hands the string to the Pi interface, which resolves it against pi's merged catalog — `~/.pi/agent/models.json` plus pi's built-in providers. The same model is usually carried by more than one provider (`gemini-3.6-flash` lives under `google` *and* under `openrouter` as `google/gemini-3.6-flash`), and a bare id that matches several **throws at resolution**:
 
 ```
 agent 'scout': model pattern 'gemini-3.6-flash' is ambiguous:
@@ -104,6 +121,51 @@ Other consequences worth knowing:
 - **Ambiguity can appear without you touching the config.** Registering a new provider that carries a model you already use turns a formerly-fine bare pattern ambiguous. If a roster stops validating and nobody edited it, that is why.
 - Provider credentials come from the environment, not the config — the key that matches the provider you named (`GEMINI_API_KEY` for `google/...`, `OPENROUTER_API_KEY` for `openrouter/...`).
 - The resolved model is recorded per session in `agent_map.json` and mirrored into the `agent_sessions` table. **Changing an agent's model invalidates its session**: a joined run starts that agent fresh instead of resuming a context window built by a different model.
+
+## Claude Code agents
+
+`coding_agent: claude_code` runs the agent through the `claude` CLI
+(`claude -p --output-format stream-json --verbose`) instead of pi. Everything
+downstream is unchanged — same envelopes, same gates, same `writes` enforcement,
+same live tool-call stream in the trace and the visualizer.
+
+**Billing is the reason it exists.** These agents run on the operator's Claude
+Pro/Max **subscription**: authenticate once with `claude login`, or
+`claude setup-token` for a headless box. To keep that true, `agent_cc.ts`
+launches the CLI through `claude_env()`, which strips every credential that
+outranks subscription OAuth in Claude Code's precedence order —
+`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and the
+Bedrock/Vertex switches. Bun loads `.env` into the process environment, so
+without that scrub an `ANTHROPIC_API_KEY` you set for a *pi* agent's provider
+would quietly move every Claude Code agent onto metered API billing. Set
+`SSSF_CC_USE_API_KEY=1` if that is what you actually want.
+
+Consequences of the scrub, and of the CLI's own behavior:
+
+- **Reported cost is notional.** `total_cost_usd` is a client-side estimate of
+  what the same tokens would have cost on the API. Under a subscription nothing
+  is billed per token, so the dollar figures in the console banner and the
+  `agent_end` payload are a *usage signal*, not an invoice. A roster mixing pi
+  and Claude Code agents therefore sums real and notional dollars in one total.
+- **`harness_engineering` must be empty.** pi extensions cannot load here, and
+  `validate()` says so before anything spawns.
+- **The target repo's `CLAUDE.md` auto-loads** into every Claude Code agent, the
+  same as an interactive session. That is usually welcome — and it means an
+  agent that can *edit* `CLAUDE.md` is editing the instructions later agents
+  receive. The starter documenter's `writes` includes `**/*.md`, which covers
+  it. Add `CLAUDE.md` to `defaults.protected_files` on a Claude Code roster
+  unless you specifically want agents steering each other.
+- **Operator settings are excluded by default.** The child loads
+  `--setting-sources project,local`, so the personal hooks and output styles in
+  your `~/.claude` do not change how a factory run behaves. Set
+  `SSSF_CC_SETTING_SOURCES=user,project,local` to opt back in.
+- **Missing credentials fail at startup.** `validate()` asks `claude auth status` once per run (only when the roster actually has a `claude_code` agent), under the same scrubbed environment the agents get. A container where the secret never got injected fails before anything spawns. The check is presence-only — an expired or malformed token still passes it and then fails on the first request with a named `HTTP 401`.
+- **Sessions are mapped, not shared.** SSSF session ids are not UUIDs and
+  `claude --session-id` requires one, so each agent's session dir holds a marker
+  file pairing them. Delete the marker (or the agent's entry in
+  `agent_map.json`) to force a fresh context. Claude Code garbage-collects
+  transcripts after roughly 30 days; a resume that finds nothing fails loudly
+  and names the marker rather than silently starting over mid-correction.
 
 ## Tools
 
@@ -122,6 +184,33 @@ Other consequences worth knowing:
 `grep`, `find`, and `ls` are off in bare Pi, so an agent that does not name them will shell out through `bash` to do the same work. The starter roster therefore sets `defaults.tools` to all seven and lets each agent narrow from there.
 
 **Resolution order:** an agent's own `tools` list wins; an agent that omits the key inherits `defaults.tools`; if neither is set, `tools` stays `None` and all tools are usable. An empty list is not "all tools" — it is a tool-less agent, and it will stall.
+
+**On Claude Code** the same seven names are translated to that CLI's tools and
+passed as `--allowedTools`, so one roster reads the same whichever interface
+runs it:
+
+| SSSF | Claude Code |
+|---|---|
+| `read` | `Read` |
+| `bash` | `Bash` |
+| `edit` | `Edit` |
+| `write` | `Write` |
+| `grep` | `Grep` |
+| `find` | `Glob` |
+| `ls` | `Glob` |
+
+`find` and `ls` share `Glob` because Claude Code has no separate
+directory-listing tool; naming both is harmless. `TodoWrite` is appended to
+every allowlist — it touches nothing in the repo, and omitting it only fills the
+trace with denials. A name outside this table (a pi extension's tool, say) fails
+`validate()` rather than quietly dropping out of the allowlist.
+
+Two differences from pi are worth knowing. Pi's `--tools` **hides** everything
+unlisted; Claude Code's allowlist leaves the rest **visible but denied**, so the
+model can still try a tool it does not have and be refused. And `tools: null`
+("all tools") becomes `--permission-mode bypassPermissions` — which is the same
+posture as pi with no `--tools` flag, and the same reason it is safe: the real
+fence is `permissions.ts` diffing the tree after every send, not the tool list.
 
 ## Write permissions — `writes` and `protected_files`
 
@@ -197,6 +286,6 @@ Rule: **every entry in `harness_engineering` that registers a tool must have tha
 
 ## Harness engineering
 
-`harness_engineering` entries are pi extension **file paths**, passed through as `pi -e <path>`, one flag per entry, scoped to that agent only. This is where per-agent harness changes live — e.g. an output-tightening extension for an agent that keeps wrapping its envelope in prose. The starter roster ships with none. On Claude Code the field is reserved for MCP config and hooks in v2.
+`harness_engineering` entries are pi extension **file paths**, passed through as `pi -e <path>`, one flag per entry, scoped to that agent only. This is where per-agent harness changes live — e.g. an output-tightening extension for an agent that keeps wrapping its envelope in prose. The starter roster ships with none. **Pi only:** a `claude_code` agent that carries entries here fails `validate()` with the list quoted back at it, rather than loading nothing and failing later for a reason nobody can see.
 
 **If the extension registers a tool, name that tool in the agent's `tools` list too** — `--tools` filters extension tools exactly like builtins, so an unnamed extension tool is silently unavailable no matter that the extension loaded fine. See [Extension tools must be named explicitly](#extension-tools-must-be-named-explicitly) above. Extensions that only shape output or add flags (no tool registration) need no `tools` change.
