@@ -22,11 +22,14 @@
  *     prepended to the user prompt on stdin. Verified: a reviewer briefed this
  *     way returns a clean, parseable envelope first try.
  *   - **No per-tool allowlist.** Codex has sandbox MODES, not tool switches, so
- *     `writes` decides the mode (see `_sandbox_for`). For a read-only agent this
- *     is a stronger fence than either sibling gives — enforced before the call
- *     rather than rolled back after it.
+ *     `tools` is inert here and every agent runs `workspace-write`. `writes` is
+ *     enforced the same way as on every other interface: `permissions.ts` diffs
+ *     the tree after the call. See the sandbox comment in `run()` for the two
+ *     narrower configurations that were tried and do not work.
  *   - **No cost data.** `turn.completed.usage` counts tokens and reports no
- *     dollars, so `result.cost` stays 0 here. Token counts are exact.
+ *     dollars, so `result.cost` stays 0 here — which is also the right answer:
+ *     a subscription is not metered per token, and across the factory `cost`
+ *     means money actually billed. Token counts are exact.
  */
 
 import { closeSync, existsSync, openSync, readFileSync, writeFileSync, writeSync } from "node:fs";
@@ -147,24 +150,6 @@ export function resolve_model(pattern: string): [string, string] {
 /** The model's context ceiling. Static — the CLI reports none to refine it from. */
 export function context_window(_provider: string, _model_id: string): number {
   return DEFAULT_CONTEXT_WINDOW;
-}
-
-/**
- * The sandbox mode an agent's `writes` earns it.
- *
- * Codex trades SSSF's per-tool allowlist for something coarser and stronger: a
- * read-only agent physically cannot write, where pi and Claude Code rely on
- * `permissions.ts` diffing the tree afterwards and rolling the damage back. The
- * post-hoc fence still runs — this narrows what has to reach it.
- *
- * `writes: null` (unrestricted) still gets `workspace-write`, never
- * `danger-full-access`: "unrestricted" in a roster means the repo, and an agent
- * that has no business leaving the workspace should not be able to.
- */
-function _sandbox_for(writes: string[] | null | undefined): string {
-  return writes !== null && writes !== undefined && writes.length === 0
-    ? "read-only"
-    : "workspace-write";
 }
 
 function _clip(text: string, limit: number): string {
@@ -306,7 +291,18 @@ export async function run(
         "--json",
         "--model", model_id,
         "-c", `model_reasoning_effort=${JSON.stringify(reasoning)}`,
-        "--sandbox", _sandbox_for(request.writes),
+        // Always workspace-write, never read-only, and never
+        // danger-full-access. `writes: []` looks like it should map to
+        // `read-only`, and that was the first implementation — but SSSF
+        // guarantees every agent can write its own report into the session
+        // runtime under `data_dir`, and `read-only` blocks that too, so a
+        // read-only reviewer fails the phase reporting it could not write.
+        // Neither escape works: `--add-dir` grants nothing under `read-only`
+        // (tested), and `sandbox_workspace_write.writable_roots` only ADDS to a
+        // workspace that is already writable, so it cannot subtract the repo
+        // (tested). The repo boundary is therefore `permissions.ts` diffing the
+        // tree afterwards — exactly as for pi and Claude Code.
+        "--sandbox", "workspace-write",
         "--skip-git-repo-check",
         "--ignore-user-config",
         "-",
@@ -317,7 +313,10 @@ export async function run(
     returncode: 0,
     session_id: request.session_id,
     tokens: 0,
-    cost: 0, // Codex reports no dollars — see the header.
+    // Always 0, for two reasons that agree: Codex reports no dollars at all,
+    // and the subscription this runs on is not metered per token anyway. Cost
+    // across the factory means money actually billed — see agent_cc.ts.
+    cost: 0,
     usage: new UsageBreakdown(),
     context_tokens: 0,
     context_window: context_window(provider, model_id),

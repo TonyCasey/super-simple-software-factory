@@ -329,6 +329,10 @@ export async function run(
         if (turn && message.stopReason !== "aborted" && message.stopReason !== "error") {
           result.context_tokens = turn;
         }
+        // Real metered spend: pi runs on provider API keys, so every token
+        // here was billed. The factory-wide rule is that `cost` is money
+        // actually charged — subscription-billed interfaces report 0.00 rather
+        // than a notional API-price estimate (see agent_cc.ts).
         result.cost += usage.cost?.total || 0;
       }
     }

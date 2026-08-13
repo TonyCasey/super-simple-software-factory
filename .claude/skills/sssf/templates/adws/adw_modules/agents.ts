@@ -224,7 +224,6 @@ export async function execute<T>(run: any, phase: Phase, call: AgentCall<T>): Pr
       tools: agent.tools,
       extensions: agent.harness_engineering,
       cwd: run.repo_root,
-      writes: agent.writes,
     };
     const result = await runner.run(
       request,

@@ -58,7 +58,7 @@ Copy `.claude/skills/sssf/` into the target repo and type `/sssf install` inside
 
 ### Manual Install
 
-**Prereqs:** [`bun`](https://bun.sh), [`pi`](https://github.com/mariozechner/pi-coding-agent), `sqlite3`, and an API key for whichever providers your roster names (see below). Bun runs the ADWs, the visualizer, and nothing else needs installing — `install.ts` fetches the one dependency (zod) into `adws/` for you.
+**Prereqs:** [`bun`](https://bun.sh), `sqlite3`, the [`claude`](https://claude.com/claude-code) and [`codex`](https://developers.openai.com/codex/cli) CLIs (both signed in — the starter roster needs no API key), and [`pi`](https://github.com/mariozechner/pi-coding-agent) only if you add a `coding_agent: pi` agent. Bun runs the ADWs, the visualizer, and nothing else needs installing — `install.ts` fetches the one dependency (zod) into `adws/` for you.
 
 ```bash
 # 1. get the skill into the target repo
@@ -67,8 +67,8 @@ cp -r /path/to/super-simple-software-factory/.claude/skills/sssf .claude/skills/
 
 # 2. stamp the factory (run from the target repo ROOT, the cwd is where everything lands)
 bun .claude/skills/sssf/scripts/install.ts
-claude login                                     # the starter roster bills your Claude sub — no API key
-claude --version                                 # confirm it is on PATH, or set CLAUDE_CODE_PATH in .env
+claude login && codex login                      # the roster bills both subs — no API key
+claude --version && codex --version               # confirm both are on PATH
 git init && git commit --allow-empty -m init     # chains that end in a commit phase need a repo
 
 # 3. smoke test: two cheap read-only runs, end to end
@@ -86,17 +86,19 @@ Green on the smoke test means the whole path works: config validated, session mi
 
 ### Which API keys you actually need
 
-**Out of the box, none.** The starter roster is entirely `coding_agent: claude_code`, which runs the `claude` CLI on your Claude Pro/Max subscription. Run `claude login` once (or `claude setup-token` on a headless box) and the whole roster works with an empty `.env`.
+**Out of the box, none.** The starter roster is entirely subscription-billed across two CLIs. Run `claude login` and `codex login` once each, and the whole roster works with an empty `.env`.
 
-| Agent in the starter roster | Model | Thinking |
-|---|---|---|
-| planner | `fable` | high |
-| builder | `sonnet` (inherited from `defaults.model`) | medium |
-| reviewer | `opus` | high |
-| documenter | `sonnet` | medium |
-| scout | `haiku` | medium |
+| Agent in the starter roster | Interface | Model | Thinking |
+|---|---|---|---|
+| planner | `claude_code` | `fable` | high |
+| builder | `claude_code` | `sonnet` (inherited from `defaults.model`) | medium |
+| reviewer | `codex` | `gpt-5.5` | high |
+| documenter | `claude_code` | `sonnet` | medium |
+| scout | `claude_code` | `haiku` | medium |
 
-Do **not** set `ANTHROPIC_API_KEY` if you want subscription billing. Claude Code prefers an API key over the subscription, so `agent_cc.ts` strips it (and the Bedrock/Vertex switches) from the child environment — `SSSF_CC_USE_API_KEY=1` opts out. Costs reported for these agents are *notional*: an estimate of API prices for tokens your subscription did not meter.
+The reviewer is deliberately the odd one out: a reviewer drawn from the same family as the builder shares its blind spots, so it runs on your ChatGPT plan instead.
+
+Do **not** set `ANTHROPIC_API_KEY` if you want subscription billing. Claude Code prefers an API key over the subscription, so `agent_cc.ts` strips it (and the Bedrock/Vertex switches) from the child environment — `SSSF_CC_USE_API_KEY=1` opts out. (Codex needs no such scrub: an `OPENAI_API_KEY` does not displace a ChatGPT login.) **Subscription agents report `cost: $0.00`** — nothing was metered per token, so the dollar column stays honest and tokens carry the usage signal.
 
 **Keys come back the moment you add a `coding_agent: pi` agent.** Its `model:` is written `provider/model-id`, and the provider half decides the key (which key pi reads for a provider comes from `~/.pi/agent/models.json`). One sharp edge: `agents.validate()` checks that a pi model resolves in the catalog, not that its provider is reachable or its key is set. A missing key does not fail at startup — it fails when that agent runs, partway into a chain.
 
@@ -371,7 +373,7 @@ Honest edges, because knowing them is cheaper than discovering them.
 | An agent edits something it should not | Detected and rolled back after the call, and the phase fails | Expected. Widen that agent's `writes` if the change was legitimate |
 | Commit phase has nothing to commit | `commit_all` raises if the cwd is not a git repo or nothing changed | `git init` with one commit first. A no-op build fails the phase rather than committing nothing |
 | `install.ts --force` | Overwrites **all** stamped files, config and prompts included | Commit before you force |
-| `coding_agent: claude_code` cost figures | `total_cost_usd` is a client-side API-price estimate | Notional under a subscription — a usage signal, not an invoice |
+| Subscription agents report `$0.00` | `cost` means money actually billed, and a subscription meters nothing per token | Expected. Read tokens, not dollars — `SSSF_CC_USE_API_KEY=1` reports real API spend |
 
 Also missing on purpose, so you know what to add: this runs on your current branch. For real work you want a branch per run, a sandbox around the agent, and a merge step at the end.
 

@@ -488,13 +488,6 @@ export interface PiRequest {
   tools: string[] | null;
   extensions: string[];
   cwd: string; // set from run.repo_root — the codebase root agents work in
-  // The agent's `writes` config, passed through for interfaces that can enforce
-  // it BEFORE the call rather than after. Optional because most cannot: pi and
-  // Claude Code both leave the boundary entirely to permissions.ts, which diffs
-  // the tree afterwards; Codex turns `writes: []` into a read-only sandbox the
-  // agent cannot write through in the first place. The post-hoc fence still
-  // runs either way — this only narrows what has to reach it.
-  writes?: string[] | null;
 }
 
 /**

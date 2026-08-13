@@ -142,11 +142,12 @@ would quietly move every Claude Code agent onto metered API billing. Set
 
 Consequences of the scrub, and of the CLI's own behavior:
 
-- **Reported cost is notional.** `total_cost_usd` is a client-side estimate of
-  what the same tokens would have cost on the API. Under a subscription nothing
-  is billed per token, so the dollar figures in the console banner and the
-  `agent_end` payload are a *usage signal*, not an invoice. A roster mixing pi
-  and Claude Code agents therefore sums real and notional dollars in one total.
+- **Subscription runs report `cost: 0.00`.** The CLI emits a `total_cost_usd`
+  estimate of API-equivalent prices, but nothing was billed per token, so the
+  factory suppresses it — `cost` means money actually charged, and a run total
+  must not mix real dollars with imaginary ones. The decision uses the child's
+  own `apiKeySource`, so opting into `SSSF_CC_USE_API_KEY=1` reports real spend
+  in full. Token counts are exact either way; see `references/observability.md`.
 - **`harness_engineering` must be empty.** pi extensions cannot load here, and
   `validate()` says so before anything spawns.
 - **The target repo's `CLAUDE.md` auto-loads** into every Claude Code agent, the
@@ -179,15 +180,18 @@ blind spots, and this is the roster's cheapest way out of that.
   other older ids are accepted by the CLI and then **fail the turn after the
   session has opened**, mid-phase. `resolve_model` rejects them at `validate()`
   instead. Extend `SUBSCRIPTION_MODELS` in `agent_codex.ts` as plans change.
-- **`writes` is enforced before the call, not after.** Codex has sandbox modes
-  rather than per-tool switches, so `writes: []` becomes `--sandbox read-only`
-  and anything else becomes `workspace-write`. This is the strongest form of a
-  read-only agent in the roster: pi and Claude Code let the write land and have
-  `permissions.ts` roll it back; Codex refuses it. That post-hoc fence still
-  runs — this just narrows what reaches it.
-- **`tools` is advisory here.** There is no per-tool allowlist to map it onto.
-  The list still documents intent and still binds verbatim if you move the agent
-  to pi or claude_code, but on codex it is `writes` that does the work.
+- **`writes` is enforced exactly as elsewhere** — by `permissions.ts`, after the
+  call. Codex has sandbox modes rather than per-tool switches, and it is tempting
+  to map `writes: []` onto `--sandbox read-only`; don't. Read-only also blocks
+  the agent writing its own report into the session runtime, which SSSF
+  guarantees every agent can always do, so a read-only reviewer fails its phase
+  saying it could not write. Neither narrowing works either: `--add-dir` grants
+  nothing under `read-only`, and `sandbox_workspace_write.writable_roots` only
+  *adds* to an already-writable workspace, so it cannot subtract the repo. Every
+  codex agent therefore runs `workspace-write`.
+- **`tools` is inert here.** There is no per-tool allowlist to map it onto. The
+  list still documents intent and still binds verbatim if you move the agent to
+  pi or claude_code, but on codex nothing reads it.
 - **No cost data.** `turn.completed` counts tokens and reports no dollars, so a
   codex agent's cost is always `$0.0000` and a mixed roster's run total omits it
   silently. Token counts are exact.

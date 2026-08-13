@@ -114,13 +114,14 @@ agents:
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/reviewer/system.md
       user: adws/adw_data/prompt_engineering/reviewer/user.md
-    writes: []                     # on codex this is the STRONGEST form of the promise:
-                                   # `writes: []` becomes a read-only sandbox the agent
-                                   # cannot write through, not a rollback after the fact
-    tools:                         # advisory here — codex has sandbox modes, not per-tool
-      - read                       # switches, so `writes` above is what actually binds.
-      - grep                       # The list still documents intent, and still applies
-      - find                       # verbatim if you move this agent to pi or claude_code.
+    writes: []                     # enforced by permissions.ts after the call, same as on
+                                   # every other interface — codex's read-only sandbox would
+                                   # also block the agent writing its own report, so it runs
+                                   # workspace-write like the rest
+    tools:                         # inert on codex — it has sandbox modes, not per-tool
+      - read                       # switches. The list still documents intent, and applies
+      - grep                       # verbatim if you move this agent to pi or claude_code.
+      - find
       - ls
       - bash
       - write

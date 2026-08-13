@@ -456,6 +456,7 @@ export async function run(
   let last_message_id = "";
   let result_event: Record<string, any> | null = null;
   let saw_init = false;
+  let api_key_source = "";
 
   const decoder = new TextDecoder();
   const raw = openSync(request.raw_output_path, "a");
@@ -476,6 +477,11 @@ export async function run(
     const etype = event.type ?? "";
     if (etype === "system" && event.subtype === "init") {
       saw_init = true;
+      // The CLI names the credential it authenticated with: "none" means no API
+      // key was involved, i.e. the subscription paid. Taken from the event
+      // rather than inferred from the environment, because this is the child's
+      // own account of what happened after the scrub.
+      api_key_source = String(event.apiKeySource ?? "");
       // The session provably exists now, and this is its authoritative id.
       // Refreshing here (and again from the terminal event) keeps the marker
       // correct whether this CLI version resumes in place or forks a new id.
@@ -526,11 +532,26 @@ export async function run(
     // which is dominated by the prompt side and correct as streamed.
     const parts = _usage_of(terminal.usage ?? {});
     const total = parts.input + parts.output + parts.cacheRead + parts.cacheWrite;
-    const cost = terminal.total_cost_usd || 0;
+    // Cost is what was BILLED, not what the tokens would have been worth.
+    //
+    // Under a subscription nothing is metered per token, so `total_cost_usd` —
+    // a client-side estimate of API prices — is money that was never charged.
+    // Reporting it would make a run total silently mix real dollars with
+    // imaginary ones, and there is no way to tell them apart downstream: the
+    // console banner, the `agent_end` payload and the visualizer's Cost panel
+    // all just add them up. So a subscription run reports 0.00 and the token
+    // counts carry the usage signal, which is what they were always better at.
+    //
+    // `apiKeySource` is the child's own account of which credential paid:
+    // "none" means no API key was involved. Anything else — the operator opted
+    // out of the scrub with SSSF_CC_USE_API_KEY=1 — is real metered spend and
+    // is reported in full.
+    const billed = Boolean(api_key_source) && api_key_source !== "none";
+    const cost = billed ? terminal.total_cost_usd || 0 : 0;
     result.tokens = total;
-    // Per-component costs stay 0: the CLI reports one total, never a breakdown.
-    // The total is set on BOTH `cost` and `usage.total_cost` — the console
-    // banner reads the first, the agent_end trace payload the second.
+    // Per-component costs stay 0 even when billed: the CLI reports one total,
+    // never a breakdown. The total is set on BOTH `cost` and `usage.total_cost`
+    // — the console banner reads the first, the agent_end payload the second.
     result.usage.add_turn({ ...parts, cost: { total: cost } }, total);
     result.cost = cost;
     if (typeof terminal.result === "string" && terminal.result.trim()) {
