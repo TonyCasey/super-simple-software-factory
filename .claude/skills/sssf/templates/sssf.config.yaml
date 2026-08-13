@@ -47,6 +47,22 @@ observability:
   db: adws/adw_data/sssf.db        # tracer writes here directly; the UI polls it
   poll_ms: 500                     # visualizer live-poll cadence
 
+# Ticket tool — `just ship ABC-123` fetches the ticket, triages it host-side,
+# and drives the whole sandbox loop from it (cookbooks/sandbox.md). `tool: none`
+# (the default) disables all of it. Status VALUES are per-repo: they map the
+# generic ladder onto the names the ticket's LIST actually uses — the driver
+# fetches the real names at runtime and degrades to a comment when one is
+# missing. Secrets (CLICKUP_API_KEY, CLICKUP_TEAM_ID) live in .env, never here.
+#
+# project:
+#   tool: clickup
+#   statuses:
+#     todo: backlog
+#     in_progress: in development
+#     in_review: in review
+#     done: shipped
+#     needs_info: ""               # "" = no such status on the board; comment-only
+
 # Sandbox dispatch — `just sandbox-sdlc ABC-123 "<prompt>"` runs the whole SDLC
 # inside a per-ticket exe.dev VM instead of on this machine. Every field has a
 # working default; uncomment what your repo needs. Two facts to hold on to:
@@ -88,6 +104,14 @@ observability:
 #     seed_cmd: []                 # run in the clone root with DATABASE_URL set,
 #                                  # e.g. ["bun", "run", "db:setup"] or ["psql", "-f", "seed.sql"]
 #   env_passthrough: []            # extra host .env keys to copy into the VM's .env
+#   pr:
+#     enabled: false               # true -> the in-VM run pushes its branch and opens a
+#                                  # draft PR through the exe.dev GitHub integration
+#                                  # (must be WRITE-enabled in the exe.dev web UI)
+#     base: ""                     # "" = the repo's default branch
+#     draft: true
+#     labels: []
+#     reviewers: []                # requested when the PR is created
 
 agents:
   - name: planner
@@ -144,6 +168,38 @@ agents:
 
   # No tester agent: running the suite is a known command, so it is a kind="code"
   # phase over adw_modules/quality.ts. See SKILL.md hard rule 8.
+
+  - name: triager
+    model: haiku                   # a verdict and questions — recon-priced, judgment-shaped
+    thinking: high
+    color: "#f97316"
+    purpose: Decide whether a ticket is implementable as written; if not, produce the questions.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/triager/system.md
+      user: adws/adw_data/prompt_engineering/triager/user.md
+    writes: []                     # read-only: its verdict goes to context_handoff/, not the repo
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+
+  - name: comment_triager
+    color: "#38bdf8"                 # inherits defaults.model (sonnet)
+    purpose: Classify every unresolved PR review thread into fix, reply, or clarify; draft the replies.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/comment_triager/system.md
+      user: adws/adw_data/prompt_engineering/comment_triager/user.md
+    writes: []                     # read-only: classifications ride the envelope
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
 
   - name: reviewer
     # The one agent outside the Claude family, and deliberately so: a reviewer

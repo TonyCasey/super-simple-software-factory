@@ -397,6 +397,50 @@ export function AgentCall<S extends z.ZodObject<any>>(args: {
   };
 }
 
+// ── Tickets (project-tool integration) ───────────────────────────────────────
+
+/** One ticket, normalized across tools. `raw` keeps the tool's full payload. */
+export const TicketSchema = z.object({
+  tool: z.string(), // "clickup" (others later)
+  id: z.string(), // the tool's canonical id
+  custom_id: z.string().default(""), // human id, e.g. PLFM-123
+  url: z.string().default(""),
+  title: z.string(),
+  description: z.string().default(""),
+  status: z.string().default(""),
+  list_id: z.string().default(""), // statuses are LIST-level in ClickUp (measured)
+  comments: z.array(z.object({ author: z.string(), text: z.string() })).default([]),
+});
+export type Ticket = z.infer<typeof TicketSchema>;
+
+/** Triage verdict: implementable as written, or a list of questions. */
+export const ClarityOutput = outputType(
+  "ClarityOutput",
+  EnvelopeBaseSchema.extend({
+    clear: z.boolean().default(false),
+    classification: z.enum(["bug", "feature", "chore"]).default("feature"),
+    questions: z.array(z.string()).default([]), // non-empty iff !clear
+  }),
+);
+export type ClarityOutput = z.infer<typeof ClarityOutput.schema>;
+
+/** PR-review comment triage: what to do with each unresolved thread. */
+export const CommentTriageItemSchema = z.object({
+  thread_id: z.string(), // GraphQL node id — resolveReviewThread takes this
+  comment_id: z.number().default(0), // REST databaseId — replies take this
+  kind: z.enum(["fix", "reply", "clarify"]),
+  reply: z.string().default(""), // posted verbatim as the inline reply
+  fix_instruction: z.string().default(""), // precise brief for the builder, when kind=fix
+});
+
+export const CommentTriageOutput = outputType(
+  "CommentTriageOutput",
+  EnvelopeBaseSchema.extend({
+    items: z.array(CommentTriageItemSchema).default([]),
+  }),
+);
+export type CommentTriageOutput = z.infer<typeof CommentTriageOutput.schema>;
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
 export const PromptEngineeringSchema = z.object({
@@ -460,6 +504,36 @@ export const RemotePostgresSchema = z.object({
   seed_cmd: z.array(z.string()).default([]), // run in the clone root with DATABASE_URL set
 });
 
+// Ticket-tool wiring (adw_ticket_ship). `tool: none` disables the whole
+// surface; nothing else here is read then. Status VALUES are per-repo: the
+// generic ladder maps to whatever names the ticket's LIST actually uses
+// (measured: ClickUp statuses are list-level). The driver fetches the real
+// names at runtime and matches case-insensitively; a missing mapped status
+// degrades to a ticket comment instead of a transition.
+export const ProjectStatusesSchema = z.object({
+  todo: z.string().default("to do"),
+  in_progress: z.string().default("in progress"),
+  in_review: z.string().default("in review"),
+  done: z.string().default("complete"),
+  needs_info: z.string().default(""), // "" = no such status; comment-only
+});
+
+export const ProjectConfigSchema = z.object({
+  tool: z.enum(["none", "clickup"]).default("none"),
+  statuses: ProjectStatusesSchema.prefault({}),
+});
+export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
+
+// PR creation from inside the VM (adw_sdlc_pr), via the exe.dev GitHub
+// integration — tokenless, requires the repo's integration to be write-enabled.
+export const RemotePrSchema = z.object({
+  enabled: z.boolean().default(false),
+  base: z.string().default(""), // "" = the repo's default branch
+  draft: z.boolean().default(true),
+  labels: z.array(z.string()).default([]),
+  reviewers: z.array(z.string()).default([]), // requested on creation
+});
+
 export const RemoteConfigSchema = z.object({
   vm_prefix: z.string().default(""), // VM name prefix; "" = repo directory name
   tag: z.string().default(""), // required with a tag-scoped exe.dev SSH key
@@ -481,6 +555,7 @@ export const RemoteConfigSchema = z.object({
   sync_interval_s: z.number().int().default(30), // monitor poll cadence
   adws_dirs: z.array(z.string()).default(["adws", "justfile"]), // copied in when the clone has no factory
   postgres: RemotePostgresSchema.prefault({}),
+  pr: RemotePrSchema.prefault({}),
   env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM
 });
 export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;
@@ -489,6 +564,7 @@ export const SSSFConfigSchema = z.object({
   defaults: ConfigDefaultsSchema.prefault({}),
   observability: ObservabilityConfigSchema.prefault({}),
   remote: RemoteConfigSchema.prefault({}),
+  project: ProjectConfigSchema.prefault({}),
   agents: z.array(AgentConfigSchema).default([]),
 });
 export type SSSFConfig = z.infer<typeof SSSFConfigSchema>;
