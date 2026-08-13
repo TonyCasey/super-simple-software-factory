@@ -13,6 +13,7 @@ import { join, resolve as resolve_path } from "node:path";
 import { z } from "zod";
 
 import * as agent_cc from "./agent_cc.ts";
+import * as agent_codex from "./agent_codex.ts";
 import * as agent_pi from "./agent_pi.ts";
 import type {
   AgentCall,
@@ -39,12 +40,14 @@ const JSON_FIX_ATTEMPTS = 2; // continue-with-correction attempts for malformed 
 const RUNNERS: Record<AgentConfig["coding_agent"], CodingAgent> = {
   pi: agent_pi,
   claude_code: agent_cc,
+  codex: agent_codex,
 };
 
 /** Where each interface keeps its per-agent session state, under the agent dir. */
 const SESSION_DIRS: Record<AgentConfig["coding_agent"], string> = {
   pi: "pi_sessions", // pi's sessions themselves
   claude_code: "cc_sessions", // id markers + the rendered system prompt
+  codex: "codex_sessions", // thread-id markers
 };
 
 export class GateFailure extends Error {
@@ -92,6 +95,7 @@ export function resolve(cfg: SSSFConfig, name: string): AgentConfig {
 export function validate(cfg: SSSFConfig, required: string[]): void {
   const problems: string[] = [];
   let needs_claude_auth = false;
+  let needs_codex_auth = false;
   for (const name of required) {
     let agent: AgentConfig;
     try {
@@ -121,6 +125,17 @@ export function validate(cfg: SSSFConfig, required: string[]): void {
         );
       }
     }
+    if (agent.coding_agent === "codex") {
+      needs_codex_auth = true;
+      // Same trap as claude_code: pi extensions cannot load, and an agent whose
+      // prompt assumes tools its harness never registered flails at run time.
+      if (agent.harness_engineering.length) {
+        problems.push(
+          `agent ${JSON.stringify(name)}: harness_engineering is pi-only — ` +
+            `${JSON.stringify(agent.harness_engineering)} cannot load into codex`,
+        );
+      }
+    }
     for (const [label, ref] of [
       ["system", agent.prompt_engineering.system],
       ["user", agent.prompt_engineering.user],
@@ -143,6 +158,10 @@ export function validate(cfg: SSSFConfig, required: string[]): void {
   if (needs_claude_auth) {
     const reason = agent_cc.unauthenticated_reason();
     if (reason) problems.push(`claude_code agents: ${reason}`);
+  }
+  if (needs_codex_auth) {
+    const reason = agent_codex.unauthenticated_reason();
+    if (reason) problems.push(`codex agents: ${reason}`);
   }
   if (problems.length) {
     throw new ConfigError("config validation failed:\n- " + problems.join("\n- "));
@@ -205,6 +224,7 @@ export async function execute<T>(run: any, phase: Phase, call: AgentCall<T>): Pr
       tools: agent.tools,
       extensions: agent.harness_engineering,
       cwd: run.repo_root,
+      writes: agent.writes,
     };
     const result = await runner.run(
       request,

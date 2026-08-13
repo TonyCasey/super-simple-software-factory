@@ -55,7 +55,7 @@ The starter roster `install.ts` stamps runs entirely on `claude_code` — `fable
 
 | Field | Type | Meaning |
 |---|---|---|
-| `coding_agent` | `pi` \| `claude_code` | Which interface runs the agent. `pi` runs `pi -p --mode json` (`agent_pi.ts`); `claude_code` runs the `claude` CLI on the operator's **Claude Pro/Max subscription** (`agent_cc.ts`) — see [Claude Code agents](#claude-code-agents). |
+| `coding_agent` | `pi` \| `claude_code` \| `codex` | Which interface runs the agent. `pi` runs `pi -p --mode json` (`agent_pi.ts`); `claude_code` runs the `claude` CLI on the operator's **Claude Pro/Max subscription** (`agent_cc.ts`) — see [Claude Code agents](#claude-code-agents). |
 | `model` | string | Model id. For Pi, any id registered in `~/.pi/agent/models.json`. For Claude Code, an alias (`opus`, `sonnet`, `haiku`, `fable`, `best`, `default`), a full `claude-*` id, or either with a `[1m]` long-context suffix. Default `sonnet`. |
 | `thinking` | enum | Reasoning effort — see below. Default `medium`. |
 | `color` | hex string | Lane color for every agent that does not set its own. Default empty — the visualizer falls back to its own palette. |
@@ -166,6 +166,46 @@ Consequences of the scrub, and of the CLI's own behavior:
   `agent_map.json`) to force a fresh context. Claude Code garbage-collects
   transcripts after roughly 30 days; a resume that finds nothing fails loudly
   and names the marker rather than silently starting over mid-correction.
+
+## Codex agents
+
+`coding_agent: codex` runs the agent through `codex exec --json` on the
+operator's **ChatGPT subscription** (`codex login`). It exists to break the
+monoculture: a reviewer drawn from the same family as the builder shares its
+blind spots, and this is the roster's cheapest way out of that.
+
+- **Models are allowlisted, not shape-checked.** A ChatGPT plan serves a
+  narrower set than the API does — `gpt-5.4` and `gpt-5.5` work; `gpt-5.2` and
+  other older ids are accepted by the CLI and then **fail the turn after the
+  session has opened**, mid-phase. `resolve_model` rejects them at `validate()`
+  instead. Extend `SUBSCRIPTION_MODELS` in `agent_codex.ts` as plans change.
+- **`writes` is enforced before the call, not after.** Codex has sandbox modes
+  rather than per-tool switches, so `writes: []` becomes `--sandbox read-only`
+  and anything else becomes `workspace-write`. This is the strongest form of a
+  read-only agent in the roster: pi and Claude Code let the write land and have
+  `permissions.ts` roll it back; Codex refuses it. That post-hoc fence still
+  runs — this just narrows what reaches it.
+- **`tools` is advisory here.** There is no per-tool allowlist to map it onto.
+  The list still documents intent and still binds verbatim if you move the agent
+  to pi or claude_code, but on codex it is `writes` that does the work.
+- **No cost data.** `turn.completed` counts tokens and reports no dollars, so a
+  codex agent's cost is always `$0.0000` and a mixed roster's run total omits it
+  silently. Token counts are exact.
+- **The system prompt is a user-turn preamble.** Codex has no system-prompt flag;
+  overriding `base_instructions` would replace the built-in agent prompt that
+  teaches it `apply_patch` and sandbox etiquette, and `AGENTS.md` is repo-wide
+  when several agents share a repo. `agent_codex.ts` prepends `system.md` to the
+  prompt on stdin instead, separated by a rule.
+- **No API-key scrub is needed.** Unlike Claude Code, an `OPENAI_API_KEY` in the
+  environment does **not** displace the ChatGPT login — verified against a live
+  run — so there is no `codex_env()` and nothing to opt out of.
+- **Operator config is excluded.** Runs pass `--ignore-user-config`, so a
+  personal `~/.codex/config.toml` (often `sandbox_mode = "danger-full-access"`)
+  cannot change how the factory behaves. Auth is unaffected; it lives in
+  `CODEX_HOME`, not the config file.
+- **Missing credentials fail at startup**, like claude_code: `validate()` runs
+  `codex login status`, whose exit code is a clean 0/1 signal. Presence, not
+  validity — an expired session passes and fails on the first request.
 
 ## Tools
 

@@ -1,10 +1,11 @@
 # sssf.config.yaml — the factory's agent roster. One agent, one prompt, one purpose.
 #
-# Two coding agents: `claude_code` (the claude CLI on your Claude Pro/Max
-# subscription — no API key) and `pi` (API keys, any provider). This starter
-# roster runs entirely on `claude_code`, so a fresh install needs `claude login`
-# and nothing in .env. See the commented pi agent at the bottom to mix in a
-# second provider, and references/config.md for the per-interface differences.
+# Three coding agents, two of them subscription-billed and needing no API key:
+# `claude_code` (the claude CLI on your Claude Pro/Max plan), `codex` (the codex
+# CLI on your ChatGPT plan), and `pi` (API keys, any provider). This roster uses
+# the first two, so a fresh install needs `claude login` + `codex login` and
+# nothing in .env. See the commented pi agent at the bottom to add a third
+# provider, and references/config.md for the per-interface differences.
 defaults:
   coding_agent: claude_code
   model: sonnet                    # alias | full claude-* id | either with a [1m] suffix
@@ -101,19 +102,25 @@ agents:
   # phase over adw_modules/quality.ts. See SKILL.md hard rule 8.
 
   - name: reviewer
-    model: opus
-    thinking: high
+    # The one agent outside the Claude family, and deliberately so: a reviewer
+    # drawn from the same lineage as the builder shares its blind spots. Runs on
+    # your ChatGPT subscription (`codex login`) — no API key.
+    coding_agent: codex
+    model: gpt-5.5                 # gpt-5.2 and other older ids are API-key only —
+                                   # a ChatGPT plan 400s them AFTER the session opens
+    thinking: high                 # -> model_reasoning_effort=high
     color: "#fb7185"
     purpose: Confirm that what was built is what was asked for; change nothing.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/reviewer/system.md
       user: adws/adw_data/prompt_engineering/reviewer/user.md
-    writes: []                     # a reviewer that cannot fix cannot quietly fix — the
-                                   # claim the tool list only implied, now enforced
-    tools:                         # full read surface; write only for review.md, no edit
-      - read
-      - grep
-      - find
+    writes: []                     # on codex this is the STRONGEST form of the promise:
+                                   # `writes: []` becomes a read-only sandbox the agent
+                                   # cannot write through, not a rollback after the fact
+    tools:                         # advisory here — codex has sandbox modes, not per-tool
+      - read                       # switches, so `writes` above is what actually binds.
+      - grep                       # The list still documents intent, and still applies
+      - find                       # verbatim if you move this agent to pi or claude_code.
       - ls
       - bash
       - write
@@ -141,11 +148,13 @@ agents:
       - write
       - edit
 
-  # A second opinion from outside the Claude family — the one thing this roster
-  # cannot give you, since every agent above shares a provider and a house style.
+  # A THIRD opinion, on a provider neither subscription covers. The reviewer
+  # above already breaks the Claude monoculture; reach for this when you want a
+  # specific model no plan includes, or a pi extension's tools (below).
   # Uncomment, install pi, set the provider's key in .env, and write the two
-  # prompt files. Mixing interfaces in one roster is supported and unremarkable:
-  # the ADW, the gates, the trace and the visualizer never learn the difference.
+  # prompt files. Mixing all three interfaces in one roster is supported and
+  # unremarkable: the ADW, the gates, the trace and the visualizer never learn
+  # the difference.
   #
   # Two things only pi can do, and they are why this example exists:
   #   - `harness_engineering`: extension FILE PATHS, loaded as `pi -e <path>`.
