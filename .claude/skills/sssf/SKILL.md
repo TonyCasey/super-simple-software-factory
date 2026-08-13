@@ -54,6 +54,7 @@ You run the system, observe the system, and help the user interact with it. **Yo
 | extend adw_modules with new low-level logic | [cookbooks/update_modules.md](cookbooks/update_modules.md) |
 | run / monitor an ADW | [cookbooks/how_to_prompt_for_the_eng.md](cookbooks/how_to_prompt_for_the_eng.md) **first**, then [cookbooks/run_adw.md](cookbooks/run_adw.md) |
 | turn a request into an ADW prompt | [cookbooks/how_to_prompt_for_the_eng.md](cookbooks/how_to_prompt_for_the_eng.md) |
+| run it in a sandbox / on a VM / remotely; `--sandbox`, ticket VMs, harvest, teardown | [cookbooks/sandbox.md](cookbooks/sandbox.md) |
 
 Deep specs, when needed: [references/config.md](references/config.md) · [references/handoff.md](references/handoff.md) · [references/observability.md](references/observability.md)
 

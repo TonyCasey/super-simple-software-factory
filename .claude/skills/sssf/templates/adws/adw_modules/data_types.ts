@@ -438,7 +438,7 @@ export const ConfigDefaultsSchema = z.object({
   // the machinery that decides whether its work passed.
   protected_files: z
     .array(z.string())
-    .default(["adws/adw_modules/", "adws/adw_sssf_config/", "adws/adw_*.ts"]),
+    .default(["adws/adw_modules/", "adws/adw_sssf_config/", "adws/adw_*.ts", "adws/sandbox/"]),
   data_dir: z.string().default("adws/adw_data"),
 });
 export type ConfigDefaults = z.infer<typeof ConfigDefaultsSchema>;
@@ -448,9 +448,47 @@ export const ObservabilityConfigSchema = z.object({
   poll_ms: z.number().int().default(500),
 });
 
+// Sandbox dispatch (`--sandbox <ticket>`): one exe.dev VM per ticket, the whole
+// SDLC runs inside it. Consumed by adw_modules/sandbox_dispatch.ts; every field
+// has a working default so an unconfigured repo can still dispatch.
+export const RemotePostgresSchema = z.object({
+  enabled: z.boolean().default(false),
+  version: z.number().int().default(16),
+  db: z.string().default("app"),
+  user: z.string().default("app"),
+  password: z.string().default("app"), // VM-local database; not a secret worth a vault
+  seed_cmd: z.array(z.string()).default([]), // run in the clone root with DATABASE_URL set
+});
+
+export const RemoteConfigSchema = z.object({
+  vm_prefix: z.string().default(""), // VM name prefix; "" = repo directory name
+  tag: z.string().default(""), // required with a tag-scoped exe.dev SSH key
+  cpu: z.number().int().default(0), // 0/""/"" = provider defaults
+  memory: z.string().default(""),
+  disk: z.string().default(""),
+  repo: z.string().default(""), // owner/name; "" = derived from `git remote get-url origin`
+  // integration -> clone via github.int.exe.xyz (no token on the VM);
+  // token -> clone github.com with GH_TOKEN from the host .env
+  clone_via: z.enum(["integration", "token"]).default("integration"),
+  // subscription -> ship CLAUDE_CODE_OAUTH_TOKEN, bill the Claude plan (default);
+  // gateway -> keyless llm.int.exe.xyz, bills the exe.dev token allocation
+  claude_auth: z.enum(["subscription", "gateway"]).default("subscription"),
+  // gateway -> keyless llm.int.exe.xyz provider in ~/.codex/config.toml (default);
+  // auth_file -> copy ~/.codex/auth.json. DANGEROUS: OpenAI rotates refresh
+  // tokens, so a shared auth.json corrupts whichever side refreshes second —
+  // measured breaking BOTH the VM run and the host login on 2026-08-13.
+  codex_auth: z.enum(["gateway", "auth_file"]).default("gateway"),
+  sync_interval_s: z.number().int().default(30), // monitor poll cadence
+  adws_dirs: z.array(z.string()).default(["adws", "justfile"]), // copied in when the clone has no factory
+  postgres: RemotePostgresSchema.prefault({}),
+  env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM
+});
+export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;
+
 export const SSSFConfigSchema = z.object({
   defaults: ConfigDefaultsSchema.prefault({}),
   observability: ObservabilityConfigSchema.prefault({}),
+  remote: RemoteConfigSchema.prefault({}),
   agents: z.array(AgentConfigSchema).default([]),
 });
 export type SSSFConfig = z.infer<typeof SSSFConfigSchema>;

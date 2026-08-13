@@ -110,6 +110,10 @@ let _auth_problem: string | null | undefined;
 export function unauthenticated_reason(): string | null {
   if (_auth_problem !== undefined) return _auth_problem;
   _auth_problem = null;
+  // A sandbox VM running Codex against a keyless provider (exe.dev's LLM
+  // gateway via ~/.codex/config.toml, requires_openai_auth=false) has no login
+  // for the probe to find — the dispatch sets this to say "auth is external".
+  if ((process.env.SSSF_CODEX_SKIP_AUTH_PROBE || "").trim() === "1") return _auth_problem;
   try {
     const probe = Bun.spawnSync([CODEX_PATH, "login", "status"], {
       env: operator_env(),
@@ -274,6 +278,20 @@ export async function run(
   // factory runs — theirs may well say `sandbox_mode = "danger-full-access"`,
   // and a run must behave the same on every machine. Auth is unaffected: it
   // lives in CODEX_HOME, not in the config file.
+  //
+  // That flag also blanks any provider configured in config.toml, so a keyless
+  // gateway (a sandbox VM on exe.dev's LLM integration, or any OpenAI-compat
+  // proxy) is instead injected per-invocation: SSSF_CODEX_BASE_URL adds the
+  // provider via `-c` flags, which --ignore-user-config does not touch.
+  const gateway_url = (process.env.SSSF_CODEX_BASE_URL || "").trim();
+  const gateway_flags = gateway_url
+    ? [
+        "-c", 'model_provider="sssf-gateway"',
+        "-c", 'model_providers.sssf-gateway.name="sssf-gateway"',
+        "-c", `model_providers.sssf-gateway.base_url=${JSON.stringify(gateway_url)}`,
+        "-c", "model_providers.sssf-gateway.requires_openai_auth=false",
+      ]
+    : [];
   const reasoning = REASONING_EFFORT[request.thinking] ?? "medium";
   const cmd = resume_thread
     ? [
@@ -281,6 +299,13 @@ export async function run(
         "--json",
         "--model", model_id,
         "-c", `model_reasoning_effort=${JSON.stringify(reasoning)}`,
+        ...gateway_flags,
+        // A resumed session does NOT inherit the sandbox mode of the turn that
+        // opened it — without this, every second turn runs read-only and the
+        // agent cannot even write its own report into the session runtime.
+        // NOTE: `exec resume` rejects the `--sandbox` FLAG (exit 2, "unexpected
+        // argument") — the config-key form is the one the subcommand accepts.
+        "-c", 'sandbox_mode="workspace-write"',
         "--skip-git-repo-check",
         "--ignore-user-config",
         resume_thread,
@@ -291,6 +316,7 @@ export async function run(
         "--json",
         "--model", model_id,
         "-c", `model_reasoning_effort=${JSON.stringify(reasoning)}`,
+        ...gateway_flags,
         // Always workspace-write, never read-only, and never
         // danger-full-access. `writes: []` looks like it should map to
         // `read-only`, and that was the first implementation — but SSSF

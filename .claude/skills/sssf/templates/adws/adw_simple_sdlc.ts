@@ -4,6 +4,13 @@
  *
  * Usage:
  *     bun adws/adw_simple_sdlc.ts "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+ *     bun adws/adw_simple_sdlc.ts "<prompt>" --sandbox ABC-123 [--fresh] [--detach]
+ *
+ * `--sandbox <ticket>` runs this exact chain inside a per-ticket exe.dev VM
+ * instead of on this machine: the harness boots the VM, provisions it (incl.
+ * postgres when configured), clones the repo, copies in the factory, launches
+ * this same script detached in there, and pulls the commits home into
+ * refs/sandbox/. See adw_modules/sandbox_dispatch.ts and cookbooks/sandbox.md.
  *
  * Phases: engineer(request) -> planner -> git(commit_plan)
  *         -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded]
@@ -60,6 +67,7 @@ import * as gates from "./adw_modules/gates.ts";
 import * as git_helper from "./adw_modules/git_helper.ts";
 import * as quality from "./adw_modules/quality.ts";
 import type { PhaseHandle } from "./adw_modules/runner.ts";
+import * as sandbox_dispatch from "./adw_modules/sandbox_dispatch.ts";
 import * as session from "./adw_modules/session.ts";
 import * as utils from "./adw_modules/utils.ts";
 
@@ -334,10 +342,26 @@ if (import.meta.main) {
     options: {
       config: { type: "string", default: "adws/adw_sssf_config/sssf.config.yaml" },
       "adw-id": { type: "string" },
+      sandbox: { type: "string" }, // ticket id — run the whole chain in a per-ticket exe.dev VM
+      fresh: { type: "boolean", default: false }, // force a new VM instead of reusing the ticket's
+      detach: { type: "boolean", default: false }, // launch and return; watch later with sandbox-watch
     },
     allowPositionals: true,
   });
-  await session.cli(() =>
-    main(utils.require_prompt(positionals, "\"<prompt or path/to/prompt.md>\" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]"), values.config, values["adw-id"]),
-  );
+  await session.cli(() => {
+    const prompt = utils.require_prompt(
+      positionals,
+      "\"<prompt or path/to/prompt.md>\" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4] [--sandbox ABC-123 [--fresh] [--detach]]",
+    );
+    return values.sandbox
+      ? sandbox_dispatch.dispatch({
+          ticket: values.sandbox!,
+          prompt,
+          adw: "simple_sdlc",
+          config_path: values.config,
+          fresh: values.fresh,
+          detach: values.detach,
+        })
+      : main(prompt, values.config, values["adw-id"]);
+  });
 }

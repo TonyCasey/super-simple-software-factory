@@ -39,11 +39,55 @@ defaults:
     - adws/adw_modules/
     - adws/adw_sssf_config/
     - adws/adw_*.ts
+    - adws/sandbox/                # guest provision/seed scripts — an in-VM agent
+                                   # must not edit what provisioned its own box
   data_dir: adws/adw_data          # runtime home: {data_dir}/sessions/{adw_id}/{agent_name}/
 
 observability:
   db: adws/adw_data/sssf.db        # tracer writes here directly; the UI polls it
   poll_ms: 500                     # visualizer live-poll cadence
+
+# Sandbox dispatch — `just sandbox-sdlc ABC-123 "<prompt>"` runs the whole SDLC
+# inside a per-ticket exe.dev VM instead of on this machine. Every field has a
+# working default; uncomment what your repo needs. Two facts to hold on to:
+# exe.dev VMs are PERSISTENT AND BILL UNTIL `just sandbox-rm`, and nothing in
+# the dispatch ever destroys one — teardown is always your explicit call.
+# Full walk-through: cookbooks/sandbox.md.
+#
+# remote:
+#   vm_prefix: ""                  # VM name prefix; "" = this repo's directory name.
+#                                  # Ticket ABC-123 -> VM <prefix>-abc-123 -> https://<prefix>-abc-123.exe.xyz
+#   tag: ""                        # REQUIRED when your exe.dev SSH key is tag-scoped —
+#                                  # the key can only create VMs carrying its tag
+#   cpu: 0                         # 0 / "" = provider defaults (2 cpu, 8GB, 25GB measured)
+#   memory: ""                     # e.g. "8GB"
+#   disk: ""                       # e.g. "20GB"
+#   repo: ""                       # owner/name to clone; "" = derived from `git remote get-url origin`
+#   clone_via: integration         # integration -> github.int.exe.xyz, NO token on the VM
+#                                  #   (needs the repo's exe.dev GitHub integration, --readonly is enough)
+#                                  # token -> github.com with GH_TOKEN from .env (contents:read PAT)
+#   claude_auth: subscription      # subscription -> ship CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`),
+#                                  #   runs bill your Claude plan, flat — the default
+#                                  # gateway -> keyless llm.int.exe.xyz, zero credentials on the box,
+#                                  #   but bills the exe.dev token allocation at API list rates
+#   codex_auth: gateway            # gateway -> keyless llm.int.exe.xyz provider in the VM's
+#                                  #   ~/.codex/config.toml (default; bills the exe.dev allocation)
+#                                  # auth_file -> copy ~/.codex/auth.json. AVOID: OpenAI rotates
+#                                  #   refresh tokens, so a shared auth.json corrupts whichever
+#                                  #   side refreshes second — including your local login
+#   sync_interval_s: 30            # monitor poll + trace-sync cadence
+#   adws_dirs:                     # copied host -> VM when the clone has no committed factory
+#     - adws
+#     - justfile
+#   postgres:
+#     enabled: false               # true -> apt install postgres, create role+db, export DATABASE_URL
+#     version: 16
+#     db: app
+#     user: app
+#     password: app                # VM-local database; rotate nothing, it dies with the VM
+#     seed_cmd: []                 # run in the clone root with DATABASE_URL set,
+#                                  # e.g. ["bun", "run", "db:setup"] or ["psql", "-f", "seed.sql"]
+#   env_passthrough: []            # extra host .env keys to copy into the VM's .env
 
 agents:
   - name: planner
