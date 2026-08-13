@@ -47,7 +47,7 @@ agents:
       - bash
 ```
 
-The starter roster `install.ts` stamps runs entirely on `claude_code` — `fable` planner, `sonnet` builder and documenter, `opus` reviewer, `haiku` scout — so a fresh install needs `claude login` and no API key at all. The `challenger` above ships commented out; uncomment it to mix in a second provider.
+The starter roster `install.ts` stamps is subscription-billed across two CLIs — `fable` planner, `sonnet` builder and documenter and `haiku` scout on `claude_code`, plus a `gpt-5.5` reviewer on `codex` — so a fresh install needs `claude login` **and** `codex login`, and no API key at all. The `challenger` above ships commented out; uncomment it to add a third provider on pi.
 
 ## Fields
 

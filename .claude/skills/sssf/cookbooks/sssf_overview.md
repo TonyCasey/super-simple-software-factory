@@ -37,7 +37,7 @@ adws/
     └── sssf.db                  gitignored SQLite trace db the visualizer polls
 ```
 
-**Two coding agents, one roster.** The starter roster is entirely `coding_agent: claude_code` — the `claude` CLI on a Claude Pro/Max **subscription** (`claude login`; no API key, and `agent_cc.ts` scrubs one if it finds it): `fable` planner, `sonnet` builder/documenter, `opus` reviewer, `haiku` scout. `coding_agent: pi` runs `pi -p --mode json` on a provider API key, written `provider/model-id`, and is the only interface that loads `harness_engineering` extensions. Everything downstream — envelopes, gates, `writes` enforcement, the trace — is identical either way.
+**Three coding agents, one roster.** The starter roster is subscription-billed end to end and needs no API key: `claude_code` (the `claude` CLI on a Claude Pro/Max plan — `fable` planner, `sonnet` builder/documenter, `haiku` scout; `agent_cc.ts` scrubs an `ANTHROPIC_API_KEY` if it finds one, since a key would outrank the subscription) and `codex` (the `codex` CLI on a ChatGPT plan — the `gpt-5.5` reviewer, deliberately outside the builder's family). `coding_agent: pi` runs `pi -p --mode json` on a provider API key, written `provider/model-id`, and is the only interface that loads `harness_engineering` extensions. Everything downstream — envelopes, gates, `writes` enforcement, the trace — is identical either way.
 
 ## The phase model
 

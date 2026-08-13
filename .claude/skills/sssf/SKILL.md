@@ -6,7 +6,7 @@ argument-hint: "[install | create adw | run adw | update config | ...]"
 
 # Super Simple Software Factory (SSSF)
 
-Reusable combination of **agents plus code**: deterministic TypeScript ADW scripts own sequencing, retries, and acceptance; coding agents (Claude Code or Pi) work inside bounded phases; typed JSON envelopes carry context between them; everything streams into SQLite for the polled visualizer. Agent proposes, code disposes.
+Reusable combination of **agents plus code**: deterministic TypeScript ADW scripts own sequencing, retries, and acceptance; coding agents (Claude Code, Codex, or Pi) work inside bounded phases; typed JSON envelopes carry context between them; everything streams into SQLite for the polled visualizer. Agent proposes, code disposes.
 
 ## Startup
 
@@ -73,4 +73,4 @@ Deep specs, when needed: [references/config.md](references/config.md) · [refere
 
 ## Scope
 
-Two coding agents. **The starter roster is entirely `coding_agent: claude_code`** — the `claude` CLI on the operator's Claude Pro/Max subscription (`claude login`; no `ANTHROPIC_API_KEY` — `agent_cc.ts` strips it so the subscription is what pays), models named as aliases or `claude-*` ids, no `harness_engineering`. Stamped models: `fable` planner, `sonnet` builder/documenter, `opus` reviewer, `haiku` scout; thinking `medium`, `high` for planner and reviewer. `coding_agent: pi` runs `pi -p --mode json` against any provider an API key reaches, and is what `harness_engineering` extensions need. Mix them in one roster. The visualizer app ships in a later pass — observe via sqlite queries until then.
+Three coding agents, two of them subscription-billed so the starter roster needs **no API key at all**. `coding_agent: claude_code` runs the `claude` CLI on the operator's Claude Pro/Max plan (`claude login`; no `ANTHROPIC_API_KEY` — `agent_cc.ts` strips it so the subscription pays), models named as aliases or `claude-*` ids. `coding_agent: codex` runs `codex exec` on their ChatGPT plan (`codex login`), models allowlisted because a ChatGPT plan serves fewer than the API does. `coding_agent: pi` runs `pi -p --mode json` against any provider an API key reaches, and is the only interface that loads `harness_engineering` extensions. Stamped roster: `fable` planner, `sonnet` builder/documenter, **`gpt-5.5` reviewer on codex**, `haiku` scout; thinking `medium`, `high` for planner and reviewer. The reviewer sits outside the Claude family on purpose — one drawn from the builder's lineage shares its blind spots. Mix all three in one roster. The visualizer app ships in a later pass — observe via sqlite queries until then.

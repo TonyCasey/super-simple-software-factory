@@ -574,12 +574,13 @@ export interface PiResult {
  * PiRequest/PiResult stay the canonical DECLARATIONS — they are the wire
  * contract the tracer, the visualizer, and every envelope already speak, and
  * renaming them would rewrite that contract for a second adapter's benefit.
- * Adapters other than pi (`agent_cc.ts`) use these aliases instead, so nothing
- * in a Claude Code file has to claim to be pi.
+ * Adapters other than pi (`agent_cc.ts`, `agent_codex.ts`) use these aliases
+ * instead, so nothing in a Claude Code or Codex file has to claim to be pi.
  *
  * One field shifts meaning across adapters: `session_dir`. For pi it is where
- * the sessions themselves live; for Claude Code the transcripts live under
- * `~/.claude` and the directory holds only this run's session-id marker and the
+ * the sessions themselves live; for Claude Code and Codex the transcripts live
+ * under the CLI's own home and the directory holds only this run's marker (and,
+ * for Claude Code, the
  * rendered system prompt.
  */
 export type AgentRequest = PiRequest;
