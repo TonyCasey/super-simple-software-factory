@@ -1,14 +1,23 @@
 # sssf.config.yaml — the factory's agent roster. One agent, one prompt, one purpose.
-# v1 runs the Pi coding agent only; coding_agent: claude_code arrives in v2.
+#
+# Three coding agents, two of them subscription-billed and needing no API key:
+# `claude_code` (the claude CLI on your Claude Pro/Max plan), `codex` (the codex
+# CLI on your ChatGPT plan), and `pi` (API keys, any provider). This roster uses
+# the first two, so a fresh install needs `claude login` + `codex login` and
+# nothing in .env. See the commented pi agent at the bottom to add a third
+# provider, and references/config.md for the per-interface differences.
 defaults:
-  coding_agent: pi
-  model: google/gemini-3.6-flash   # provider/id — a bare pattern is ambiguous across providers
+  coding_agent: claude_code
+  model: sonnet                    # alias | full claude-* id | either with a [1m] suffix
   thinking: medium                 # off | minimal | low | medium | high | xhigh | max
-  harness_engineering: []          # pi extensions loaded into the harness (-e)
-  # Roster-wide allowlist; any agent may override with its own list.
-  # NOTE: --tools filters extension and custom tools too, not just builtins. An agent
-  # whose harness_engineering extension registers a tool MUST name that tool in its own
-  # tools list — otherwise the extension loads and its tool is silently filtered out.
+                                   # (claude_code has no `off`: off/minimal -> --effort low)
+  harness_engineering: []          # pi extensions (-e). PI ONLY — a claude_code agent
+                                   # carrying entries here fails validate() before it spawns.
+  # Roster-wide allowlist; any agent may override with its own list. The seven
+  # names below are one vocabulary across both interfaces: pi passes them
+  # through, claude_code maps them (find/ls -> Glob, and so on) and appends
+  # TodoWrite. A name outside the seven is a pi extension tool — see the note on
+  # the commented pi agent at the bottom before adding one.
   tools:
     - read                         # read file contents
     - bash                         # execute bash commands
@@ -38,15 +47,13 @@ observability:
 
 agents:
   - name: planner
-    model: fireworks/accounts/fireworks/models/kimi-k3
+    model: fable                   # the roster's most capable planner, and its priciest seat
     thinking: high
     color: "#a78bfa"                 # optional hex — the agent's lane color in the visualizer
     purpose: Turn a request into a plan the builder can implement without asking questions.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/planner/system.md
       user: adws/adw_data/prompt_engineering/planner/user.md
-    harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
     writes:                        # the plan is the only thing it may leave in the repo
       - specs/
     tools:                         # full recon + write for plan.md; no edit — the planner never touches repo files
@@ -56,13 +63,9 @@ agents:
       - ls
       - bash
       - write
-      - subagent_create            # extension tools MUST be named here or they are filtered out
-      - subagent_continue
-      - subagent_list
-      - subagent_remove
 
   - name: builder
-    color: "#22d3ee"
+    color: "#22d3ee"                 # no `model` key: inherits defaults.model (sonnet)
     purpose: Implement the plan exactly; report every changed file in the envelope.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/builder/system.md
@@ -79,13 +82,12 @@ agents:
       - write
 
   - name: scout
+    model: haiku                   # recon is read-and-report: the cheapest seat earns its keep
     color: "#fbbf24"
     purpose: Find and report where things live; change nothing.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/scout/system.md
       user: adws/adw_data/prompt_engineering/scout/user.md
-    harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts    # registers the four subagent_* tools below
     writes: []                     # read-only, and now actually read-only: its findings
                                    # go to context_handoff/, which is runtime, not the repo
     tools:                         # search-heavy recon; write only so scout_findings.md lands without a bash heredoc
@@ -95,34 +97,39 @@ agents:
       - ls
       - bash
       - write
-      - subagent_create            # extension tools MUST be named here or they are filtered out
-      - subagent_continue
-      - subagent_list
-      - subagent_remove
 
   # No tester agent: running the suite is a known command, so it is a kind="code"
   # phase over adw_modules/quality.ts. See SKILL.md hard rule 8.
 
   - name: reviewer
-    model: openai/gpt-5.6-terra
-    thinking: high
+    # The one agent outside the Claude family, and deliberately so: a reviewer
+    # drawn from the same lineage as the builder shares its blind spots. Runs on
+    # your ChatGPT subscription (`codex login`) — no API key.
+    coding_agent: codex
+    model: gpt-5.5                 # gpt-5.2 and other older ids are API-key only —
+                                   # a ChatGPT plan 400s them AFTER the session opens
+    thinking: high                 # -> model_reasoning_effort=high
     color: "#fb7185"
     purpose: Confirm that what was built is what was asked for; change nothing.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/reviewer/system.md
       user: adws/adw_data/prompt_engineering/reviewer/user.md
-    writes: []                     # a reviewer that cannot fix cannot quietly fix — the
-                                   # claim the tool list only implied, now enforced
-    tools:                         # full read surface; write only for review.md, no edit
-      - read
-      - grep
+    writes: []                     # enforced by permissions.ts after the call, same as on
+                                   # every other interface — codex's read-only sandbox would
+                                   # also block the agent writing its own report, so it runs
+                                   # workspace-write like the rest
+    tools:                         # inert on codex — it has sandbox modes, not per-tool
+      - read                       # switches. The list still documents intent, and applies
+      - grep                       # verbatim if you move this agent to pi or claude_code.
       - find
       - ls
       - bash
       - write
 
   - name: documenter
-    model: openai/gpt-5.6-luna
+    model: sonnet                  # deliberately NOT claude-sonnet-5[1m]: measured on a real
+                                   # run, the [1m] variant bills ~1.7x per token for the SAME
+                                   # 1M window sonnet already reports. Long diffs need neither.
     color: "#e879f9"
     purpose: Write up the change that was just made, from the diff; document only.
     prompt_engineering:
@@ -141,3 +148,52 @@ agents:
       - bash
       - write
       - edit
+
+  # A THIRD opinion, on a provider neither subscription covers. The reviewer
+  # above already breaks the Claude monoculture; reach for this when you want a
+  # specific model no plan includes, or a pi extension's tools (below).
+  # Uncomment, install pi, set the provider's key in .env, and write the two
+  # prompt files. Mixing all three interfaces in one roster is supported and
+  # unremarkable: the ADW, the gates, the trace and the visualizer never learn
+  # the difference.
+  #
+  # Two things only pi can do, and they are why this example exists:
+  #   - `harness_engineering`: extension FILE PATHS, loaded as `pi -e <path>`.
+  #     Claude Code rejects a non-empty list at validate() time. The installer
+  #     still stamps adws/adw_data/harness_engineering/subagents.ts — it is what
+  #     the four subagent_* tools below come from, and it only loads under pi.
+  #   - tool names beyond the seven builtins. `--tools` filters extension tools
+  #     exactly like builtins, so an extension's tool MUST be named here or it
+  #     loads and is then silently filtered out.
+  #
+  # Enabling an extension's tools is THREE edits, not one: the file path in
+  # `harness_engineering`, every tool it registers in `tools`, and a line in that
+  # agent's system.md telling it when to reach for them. Miss the third and the
+  # agent has a capability nobody told it about; miss it in reverse — a prompt
+  # naming tools the agent lacks — and it burns turns calling something that
+  # isn't there. The starter prompts carry no subagent guidance for exactly this
+  # reason: the default roster is claude_code, which has no subagent_* tools.
+  #
+  # - name: challenger
+  #   coding_agent: pi
+  #   model: openai/gpt-5.6-terra  # ALWAYS provider/id — a bare id matches several providers
+  #   thinking: high
+  #   color: "#34d399"
+  #   purpose: Review the build against the plan from outside the Claude family.
+  #   prompt_engineering:
+  #     system: adws/adw_data/prompt_engineering/challenger/system.md
+  #     user: adws/adw_data/prompt_engineering/challenger/user.md
+  #   harness_engineering:
+  #     - adws/adw_data/harness_engineering/subagents.ts   # registers the four tools below
+  #   writes: []                   # a reviewer that cannot fix cannot quietly fix
+  #   tools:
+  #     - read
+  #     - grep
+  #     - find
+  #     - ls
+  #     - bash
+  #     - write
+  #     - subagent_create          # extension tools MUST be named here or they are filtered out
+  #     - subagent_continue
+  #     - subagent_list
+  #     - subagent_remove

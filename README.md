@@ -58,7 +58,7 @@ Copy `.claude/skills/sssf/` into the target repo and type `/sssf install` inside
 
 ### Manual Install
 
-**Prereqs:** [`bun`](https://bun.sh), [`pi`](https://github.com/mariozechner/pi-coding-agent), `sqlite3`, and an API key for whichever providers your roster names (see below). Bun runs the ADWs, the visualizer, and nothing else needs installing — `install.ts` fetches the one dependency (zod) into `adws/` for you.
+**Prereqs:** [`bun`](https://bun.sh), `sqlite3`, the [`claude`](https://claude.com/claude-code) and [`codex`](https://developers.openai.com/codex/cli) CLIs (both signed in — the starter roster needs no API key), and [`pi`](https://github.com/mariozechner/pi-coding-agent) only if you add a `coding_agent: pi` agent. Bun runs the ADWs, the visualizer, and nothing else needs installing — `install.ts` fetches the one dependency (zod) into `adws/` for you.
 
 ```bash
 # 1. get the skill into the target repo
@@ -67,8 +67,8 @@ cp -r /path/to/super-simple-software-factory/.claude/skills/sssf .claude/skills/
 
 # 2. stamp the factory (run from the target repo ROOT, the cwd is where everything lands)
 bun .claude/skills/sssf/scripts/install.ts
-cp .env.sample .env                              # then set OPENROUTER_API_KEY
-pi --version                                     # confirm pi is on PATH, or set PI_PATH in .env
+claude login && codex login                      # the roster bills both subs — no API key
+claude --version && codex --version               # confirm both are on PATH
 git init && git commit --allow-empty -m init     # chains that end in a commit phase need a repo
 
 # 3. smoke test: two cheap read-only runs, end to end
@@ -82,23 +82,25 @@ bun adws/adw_prompt.ts "reply with a one-line summary of this repo" --agent scou
 
 Re-running `install.ts` is safe. It skips every file that already exists and reports what it skipped, so a second run doubles as a drift check. `--force` refreshes stamped code to the skill's current version, but it overwrites **all** stamped files including your `sssf.config.yaml` and your prompts, so commit first.
 
-Green on the smoke test means the whole path works: config validated, session minted, Pi ran, envelope parsed, events landed in `adws/adw_data/sssf.db`. Fix it there before composing anything larger, because every multi-agent chain rides this exact path.
+Green on the smoke test means the whole path works: config validated, session minted, the coding agent ran, envelope parsed, events landed in `adws/adw_data/sssf.db`. Fix it there before composing anything larger, because every multi-agent chain rides this exact path.
 
 ### Which API keys you actually need
 
-That depends on your roster, not on this repo. Every `model:` in `sssf.config.yaml` is written `provider/model-id`, and the provider half decides the key. Which key pi reads for a given provider comes from `~/.pi/agent/models.json`.
+**Out of the box, none.** The starter roster is entirely subscription-billed across two CLIs. Run `claude login` and `codex login` once each, and the whole roster works with an empty `.env`.
 
-The starter roster deliberately mixes providers to show the point, so out of the box it wants three:
+| Agent in the starter roster | Interface | Model | Thinking |
+|---|---|---|---|
+| planner | `claude_code` | `fable` | high |
+| builder | `claude_code` | `sonnet` (inherited from `defaults.model`) | medium |
+| reviewer | `codex` | `gpt-5.5` | high |
+| documenter | `claude_code` | `sonnet` | medium |
+| scout | `claude_code` | `haiku` | medium |
 
-| Model in the starter roster | Provider | Key |
-|---|---|---|
-| `google/gemini-3.6-flash` (default, builder, scout) | served via openrouter | `OPENROUTER_API_KEY` |
-| `fireworks/accounts/fireworks/models/kimi-k3` (planner) | fireworks | `FIREWORKS_API_KEY` |
-| `openai/gpt-5.6-terra`, `openai/gpt-5.6-luna` (reviewer, documenter) | openai | `OPENAI_API_KEY` |
+The reviewer is deliberately the odd one out: a reviewer drawn from the same family as the builder shares its blind spots, so it runs on your ChatGPT plan instead.
 
-**Want one key instead of three?** Delete the per-agent `model:` lines and let every agent inherit `defaults.model`. The whole roster then runs on one provider. Cheapest way to get a first green run.
+Do **not** set `ANTHROPIC_API_KEY` if you want subscription billing. Claude Code prefers an API key over the subscription, so `agent_cc.ts` strips it (and the Bedrock/Vertex switches) from the child environment — `SSSF_CC_USE_API_KEY=1` opts out. (Codex needs no such scrub: an `OPENAI_API_KEY` does not displace a ChatGPT login.) **Subscription agents report `cost: $0.00`** — nothing was metered per token, so the dollar column stays honest and tokens carry the usage signal.
 
-One sharp edge worth knowing: `agents.validate()` checks that a model is *written* as `provider/id`, not that the provider is reachable or that its key is set. A missing key does not fail at startup. It fails when that agent runs, partway into a chain.
+**Keys come back the moment you add a `coding_agent: pi` agent.** Its `model:` is written `provider/model-id`, and the provider half decides the key (which key pi reads for a provider comes from `~/.pi/agent/models.json`). One sharp edge: `agents.validate()` checks that a pi model resolves in the catalog, not that its provider is reachable or its key is set. A missing key does not fail at startup — it fails when that agent runs, partway into a chain.
 
 
 ---
@@ -148,8 +150,8 @@ There is no DSL here. No framework to learn. It is TypeScript, YAML, agents, and
 
 ```yaml
 defaults:
-  coding_agent: pi                 # v1 runs pi only, claude_code is schema-valid and stubbed
-  model: google/gemini-3.6-flash   # provider/model-id, a bare id can match several providers
+  coding_agent: claude_code        # claude CLI on your subscription (or `pi` for API keys)
+  model: sonnet                    # alias or claude-* id (pi models are provider/model-id)
   thinking: medium                 # off | minimal | low | medium | high | xhigh | max
   protected_files:                 # no agent may edit the machinery that grades it
     - adws/adw_modules/
@@ -159,15 +161,13 @@ defaults:
 
 agents:
   - name: planner
-    model: fireworks/accounts/fireworks/models/kimi-k3
+    model: fable
     thinking: high                 # per-agent overrides win over defaults
     color: "#a78bfa"               # this agent's lane swatch in the trace
     purpose: Turn a request into a plan the builder can implement without asking questions.
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/planner/system.md
       user: adws/adw_data/prompt_engineering/planner/user.md
-    harness_engineering:
-      - adws/adw_data/harness_engineering/subagents.ts   # this agent can spawn subagents
     writes:                        # the plan is all it may leave in the repo
       - specs/
 ```
@@ -365,7 +365,7 @@ Honest edges, because knowing them is cheaper than discovering them.
 | Failure | What actually happens | What to do |
 |---|---|---|
 | The test phase reports green on a fresh install | `quality.ts` ships placeholder commands that exit 0. Three ADWs run them as their test phase | Wire your real commands into `quality.ts` before trusting `adw_build_test`, `adw_plan_build_test`, or `adw_simple_sdlc`. This is the first thing to customize |
-| A bare model pattern | The same model sits under several providers, so `gemini-3.6-flash` matches three catalog entries and `agents.validate()` refuses to spawn | Always write `provider/model-id` |
+| A bare model pattern on a **pi** agent | The same model sits under several providers, so `gemini-3.6-flash` matches three catalog entries and `agents.validate()` refuses to spawn | Always write `provider/model-id` (claude_code models are aliases or `claude-*` ids instead) |
 | `just` is not installed | The stamped `justfile` is a convenience wrapper, nothing depends on it | Every recipe is a one-line `bun` or `sqlite3` command. Open the justfile and run the line yourself |
 | A coding agent hangs silently | No events, no tokens, an empty `raw_output.jsonl`. The trace goes quiet rather than red | Query `processes` for what is alive and kill it children-first. A killed run finalizes its own trace to `fail` |
 | The synced triad drifts | Type, `## Report` example, and `output_type=` disagree, so every call burns correction rounds | Grep the type name and fix all three in one edit |
@@ -373,7 +373,7 @@ Honest edges, because knowing them is cheaper than discovering them.
 | An agent edits something it should not | Detected and rolled back after the call, and the phase fails | Expected. Widen that agent's `writes` if the change was legitimate |
 | Commit phase has nothing to commit | `commit_all` raises if the cwd is not a git repo or nothing changed | `git init` with one commit first. A no-op build fails the phase rather than committing nothing |
 | `install.ts --force` | Overwrites **all** stamped files, config and prompts included | Commit before you force |
-| `coding_agent: claude_code` | Schema-valid, but `agent_cc.ts` raises | v1 is Pi only |
+| Subscription agents report `$0.00` | `cost` means money actually billed, and a subscription meters nothing per token | Expected. Read tokens, not dollars — `SSSF_CC_USE_API_KEY=1` reports real API spend |
 
 Also missing on purpose, so you know what to add: this runs on your current branch. For real work you want a branch per run, a sandbox around the agent, and a merge step at the end.
 

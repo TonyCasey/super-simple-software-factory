@@ -6,7 +6,7 @@ argument-hint: "[install | create adw | run adw | update config | ...]"
 
 # Super Simple Software Factory (SSSF)
 
-Reusable combination of **agents plus code**: deterministic TypeScript ADW scripts own sequencing, retries, and acceptance; coding agents (Pi in v1) work inside bounded phases; typed JSON envelopes carry context between them; everything streams into SQLite for the polled visualizer. Agent proposes, code disposes.
+Reusable combination of **agents plus code**: deterministic TypeScript ADW scripts own sequencing, retries, and acceptance; coding agents (Claude Code, Codex, or Pi) work inside bounded phases; typed JSON envelopes carry context between them; everything streams into SQLite for the polled visualizer. Agent proposes, code disposes.
 
 ## Startup
 
@@ -71,6 +71,6 @@ Deep specs, when needed: [references/config.md](references/config.md) · [refere
 9. **`tools:` is a capability list, `writes:` is the boundary** — `bash` runs anything (including `git checkout`) and `write` reaches any path, so a tool list can never make "this agent changes nothing" true. `writes:` per agent and `protected_files` in defaults are enforced in `adw_modules/permissions.ts` after every agent call: unauthorized changes are rolled back and the phase dies. The session runtime under `data_dir` is always writable — a read-only agent is read-only with respect to the REPO, never mute.
 10. **Every ADW ends in `run.finish()`** — phases passing is not the same as the run being accepted. A test phase that ran a red suite succeeded at its job. Pass `accepted=` so the exit code, the session status, and the banner are decided together and cannot disagree.
 
-## v1 scope
+## Scope
 
-Pi coding agent only (`coding_agent: pi`), default model `gemini-3.6-flash` via openrouter, thinking `medium`. `claude_code` is schema-valid but stubbed until v2. The visualizer app ships in a later pass — observe via sqlite queries until then.
+Three coding agents, two of them subscription-billed so the starter roster needs **no API key at all**. `coding_agent: claude_code` runs the `claude` CLI on the operator's Claude Pro/Max plan (`claude login`; no `ANTHROPIC_API_KEY` — `agent_cc.ts` strips it so the subscription pays), models named as aliases or `claude-*` ids. `coding_agent: codex` runs `codex exec` on their ChatGPT plan (`codex login`), models allowlisted because a ChatGPT plan serves fewer than the API does. `coding_agent: pi` runs `pi -p --mode json` against any provider an API key reaches, and is the only interface that loads `harness_engineering` extensions. Stamped roster: `fable` planner, `sonnet` builder/documenter, **`gpt-5.5` reviewer on codex**, `haiku` scout; thinking `medium`, `high` for planner and reviewer. The reviewer sits outside the Claude family on purpose — one drawn from the builder's lineage shares its blind spots. Mix all three in one roster. The visualizer app ships in a later pass — observe via sqlite queries until then.

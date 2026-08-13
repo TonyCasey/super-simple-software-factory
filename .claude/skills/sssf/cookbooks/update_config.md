@@ -8,7 +8,7 @@ Edit the agent's entry in place:
 
 ```yaml
   - name: builder
-    model: google/gemini-3.6-flash   # ALWAYS provider/model-id
+    model: sonnet                    # claude_code alias (pi: ALWAYS provider/model-id)
     thinking: high                   # was medium
 ```
 

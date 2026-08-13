@@ -13,8 +13,9 @@ Extend `adws/adw_modules/` with new low-level logic.
 | `data_types.ts` | Every Pydantic model: `AgentCall`, `PhaseParams`, `Phase`, `EnvelopeBase` + one output type per agent call, the config models (`AgentConfig`, `SSSFConfig`), `EventRecord`, and `PiRequest`/`PiResult` |
 | `agents.ts` | `load_config`, `validate`, resolving an entry → coding-agent interface + model + thinking + harness extensions |
 | `runner.ts` | the `Run` object; `run.phase(PhaseParams)` context manager; `ph.call(AgentCall)` |
-| `agent_pi.ts` | the Pi interface (v1) — non-interactive `pi -p --mode json`, JSONL stream tailed live, model resolved against `~/.pi/agent/models.json`; `--session-id` creates-or-continues, so running and continuing an agent are the same call |
-| `agent_cc.ts` | the Claude Code interface — stubbed in v1, lands in v2 |
+| `agent_pi.ts` | the Pi interface — non-interactive `pi -p --mode json`, JSONL stream tailed live, model resolved against `~/.pi/agent/models.json`; `--session-id` creates-or-continues, so running and continuing an agent are the same call |
+| `agent_codex.ts` | the Codex interface — `codex exec --json` on a ChatGPT subscription; the system prompt rides stdin (no flag exists), every agent runs `workspace-write` with `permissions.ts` owning the repo boundary, and models are allowlisted because a ChatGPT plan serves fewer than the API does |
+| `agent_cc.ts` | the Claude Code interface — `claude -p --output-format stream-json --verbose` on a Claude Pro/Max subscription (API-key env vars scrubbed via `utils.claude_env()`), prompt on stdin, SSSF session id mapped to a UUID by a marker file so `--session-id` / `--resume` behave like pi's creates-or-continues |
 | `gates.ts` | validation gates over envelope claims |
 | `changes.ts` | deterministic change capture: resolve the base ref, `git diff` into `context_handoff/changes.diff`, adapt the `ChangeSet` into an envelope an agent can be handed |
 | `prompts.ts` | load system/user prompt refs from config, render placeholders |

@@ -152,9 +152,9 @@ adws/adw_data/sessions/{adw_id}/
 ```json
 {
   "planner": {"session_id": "sssf-a1b2c3d4-planner-9f2e",
-              "model": "google/gemini-3.6-flash", "coding_agent": "pi"},
+              "model": "fable", "coding_agent": "claude_code"},
   "builder": {"session_id": "sssf-a1b2c3d4-builder-71ac",
-              "model": "google/gemini-3.6-flash", "coding_agent": "pi"}
+              "model": "sonnet", "coding_agent": "claude_code"}
 }
 ```
 

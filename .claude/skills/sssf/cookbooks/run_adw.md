@@ -35,8 +35,8 @@ That prints the path to pass and who is in it, in one read:
 
 ```
 adws/adw_sssf_config/sssf.config.yaml
-    planner     fireworks/accounts/fireworks/models/kimi-k3
-    builder     google/gemini-3.6-flash (inherited)
+    planner     fable
+    builder     sonnet (inherited)
 adws/adw_sssf_config/sssf.frontier.config.yaml
     planner     anthropic/claude-opus-5
 ```

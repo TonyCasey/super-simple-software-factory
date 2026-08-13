@@ -29,6 +29,19 @@ Location comes from `observability.db` in `sssf.config.yaml`, default `adws/adw_
 
 **Spend is itemised per phase.** `agent_end.usage` carries tokens *and* dollars for each component pi reports — `input`, `output`, `cache_read`, `cache_write` — summed across every send the phase made, so a phase that retried on a bad envelope or a failed gate shows what all its attempts cost, not just the last one. The four components sum to `total_tokens`, and their costs sum to `total_cost`; the visualizer's Cost panel renders them as a table you can add up by eye.
 
+**Cost is money actually billed — subscription work reports `$0.00`.** Every interface obeys the same rule, so a run total is never part real and part imaginary:
+
+| Interface | Billing | `cost` |
+|---|---|---|
+| `pi` | provider API keys | real, itemised per component |
+| `claude_code` on a subscription | Claude Pro/Max | **0.00** |
+| `claude_code` with `SSSF_CC_USE_API_KEY=1` | metered API | real, single total (the CLI reports no breakdown) |
+| `codex` | ChatGPT | **0.00** |
+
+The Claude Code CLI *does* emit a `total_cost_usd` on subscription runs, but it is a client-side estimate of what those tokens would have cost on the API — money nobody was charged. Adding it to a run total would silently mix real dollars with imaginary ones, and nothing downstream could tell them apart: the console banner, the `agent_end` payload and the Cost panel all just sum the column. So it is suppressed, decided by the credential the child itself reports using (`system/init.apiKeySource`), not by guessing from the environment. The raw estimate is still on disk in `raw_output.jsonl` if you want it.
+
+**Tokens are the signal for subscription work.** They are exact on every interface, they are what rate limits are denominated in, and they are what `context_tokens` and the context bar measure. A `$0.00` agent that burned 300k tokens is telling you something real; the dollar column simply isn't the place it says it.
+
 `reasoning_tokens` is the thinking share and is **inside** `output_tokens`, not a fifth component — measured across every session on disk, reasoning never exceeds output and the four components always reconcile to the total. It bills at the output rate, so the panel nests it under output rather than adding it. Runs predating the breakdown have no `usage` key at all; the lump `cost` and the event's own `tokens` still stand, and the UI says so rather than rendering zeroes.
 
 **Context is occupancy, not spend.** `events.tokens` and `sessions.total_tokens` bill every turn, so they only grow — an agent that burned 100k tokens may be sitting in a 15k window. `context_tokens` is how full the window actually was when the agent stopped, which is what the visualizer's per-lane Context bar measures against `context_window`.

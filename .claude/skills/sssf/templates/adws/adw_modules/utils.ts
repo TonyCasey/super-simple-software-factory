@@ -29,6 +29,50 @@ export function operator_env(): Record<string, string> {
   return env;
 }
 
+// Everything that outranks subscription OAuth in Claude Code's auth precedence.
+// Highest first: Bedrock/Vertex > ANTHROPIC_AUTH_TOKEN > ANTHROPIC_API_KEY >
+// apiKeyHelper > CLAUDE_CODE_OAUTH_TOKEN > subscription OAuth. Anything left in
+// the child's environment above that last rung silently bills an API account
+// instead of the subscription the operator is paying for.
+const CLAUDE_AUTH_OVERRIDES = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "ANTHROPIC_CUSTOM_HEADERS",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "ANTHROPIC_BEDROCK_BASE_URL",
+  "ANTHROPIC_VERTEX_BASE_URL",
+  "ANTHROPIC_VERTEX_PROJECT_ID",
+  "CLOUD_ML_REGION",
+  "AWS_BEARER_TOKEN_BEDROCK",
+];
+
+/**
+ * The operator's environment with Claude Code's API-key rungs removed.
+ *
+ * The point of the `claude_code` interface is to run factory agents on a Claude
+ * Pro/Max SUBSCRIPTION — `claude login` or `claude setup-token` — and the CLI
+ * picks the highest-precedence credential it can see, not the one you meant.
+ * Bun loads `.env` into `process.env` before an ADW runs, so an
+ * `ANTHROPIC_API_KEY` set there for a pi agent's provider would otherwise
+ * quietly redirect every Claude Code agent onto metered API billing. Scrubbing
+ * the child env is what keeps a mixed roster honest.
+ *
+ * `CLAUDE_CODE_OAUTH_TOKEN` survives: it IS the subscription credential in
+ * headless/CI runs, where there is no interactive login to fall back to.
+ *
+ * `SSSF_CC_USE_API_KEY=1` skips the scrub entirely, for operators who mean to
+ * spend an API key (or who route Claude Code through a proxy via
+ * `ANTHROPIC_BASE_URL`).
+ */
+export function claude_env(): Record<string, string> {
+  const env = operator_env();
+  if ((process.env.SSSF_CC_USE_API_KEY || "").trim() === "1") return env;
+  for (const key of CLAUDE_AUTH_OVERRIDES) delete env[key];
+  return env;
+}
+
 /**
  * A random hex id of exactly `length` characters.
  *
