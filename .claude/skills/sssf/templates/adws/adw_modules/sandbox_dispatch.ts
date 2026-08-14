@@ -452,6 +452,11 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
         for (const dir of remote.adws_dirs) {
           exe_dev.rsync_to(vm_name, join(git_helper.repo_root(), dir), `${APP_DIR}/`);
         }
+        // A copied-in factory is workshop equipment, not the change: exclude
+        // it from git or the run's commit phase sweeps all of it (including
+        // adws/node_modules) into the PR. Committed factories skip this.
+        const lines = remote.adws_dirs.map((d) => `/${d.replace(/\/+$/, "")}`).join("\\n");
+        exe_dev.sh(vm_name, `printf '${lines}\\n' >> .git/info/exclude`, { cwd: APP_DIR });
       }
       exe_dev.sh(vm_name, "bun install --silent", { cwd: `${APP_DIR}/adws`, timeout_ms: 300_000 });
       // No args exits 2 (usage) — proof the module graph and deps resolve.
