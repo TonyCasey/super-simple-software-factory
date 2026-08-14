@@ -111,7 +111,8 @@ observability:
 #     base: ""                     # "" = the repo's default branch
 #     draft: true
 #     labels: []
-#     reviewers: []                # requested when the PR is created
+#     reviewers: []                # requested when the PR is created; "Copilot" works
+#     signature: ""                # appended to pr-watch replies; "" = unsigned
 
 agents:
   - name: planner

@@ -532,6 +532,7 @@ export const RemotePrSchema = z.object({
   draft: z.boolean().default(true),
   labels: z.array(z.string()).default([]),
   reviewers: z.array(z.string()).default([]), // requested on creation
+  signature: z.string().default(""), // appended to watcher replies; "" = unsigned
 });
 
 export const RemoteConfigSchema = z.object({

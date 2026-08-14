@@ -90,10 +90,16 @@ export function create_pr(args: {
   ];
   if (args.draft ?? true) argv.push("--draft");
   for (const label of args.labels ?? []) argv.push("--label", label);
-  for (const reviewer of args.reviewers ?? []) argv.push("--reviewer", reviewer);
   const url = _gh(argv).split("\n").pop() ?? "";
   const number = Number(url.match(/\/pull\/(\d+)/)?.[1] ?? 0);
   if (!url.includes("/pull/") || !number) throw new GitHubError(`pr create returned no PR url: ${url}`);
+  // Reviewers go through request_review, not --reviewer: Copilot is only
+  // reachable via REST, and a failed reviewer must not fail the PR creation.
+  try {
+    request_review(args.repo, number, args.reviewers ?? []);
+  } catch (error) {
+    console.error(`(reviewer request failed, PR stands: ${error})`);
+  }
   return { url, number };
 }
 
@@ -160,9 +166,34 @@ export function resolve_thread(thread_id: string): void {
   }
 }
 
+/** The Copilot reviewer bot — requested via REST, unreachable by login. */
+const COPILOT_BOT = "copilot-pull-request-reviewer[bot]";
+
+export function is_copilot(reviewer: string): boolean {
+  // Accept the config shorthand, the bot's full request name, and the login
+  // GraphQL reports as review-thread author (no "[bot]" suffix there).
+  const r = reviewer.toLowerCase();
+  return r === "copilot" || r === COPILOT_BOT || r === "copilot-pull-request-reviewer";
+}
+
 export function request_review(repo: string, number: number, reviewers: string[]): void {
-  if (!reviewers.length) return;
-  const argv = ["pr", "edit", String(number), "-R", repo];
-  for (const reviewer of reviewers) argv.push("--add-reviewer", reviewer);
-  _gh(argv);
+  const humans = reviewers.filter((r) => !is_copilot(r));
+  const copilot = reviewers.some(is_copilot);
+  if (humans.length) {
+    const argv = ["pr", "edit", String(number), "-R", repo];
+    for (const reviewer of humans) argv.push("--add-reviewer", reviewer);
+    _gh(argv);
+  }
+  if (copilot) {
+    // gh's --add-reviewer resolves BY LOGIN and cannot see the bot; the REST
+    // endpoint takes it. NOTE: GitHub accepts this silently even when Copilot
+    // code review is NOT enabled on the account — verify a request registered
+    // if it matters.
+    _gh(["api", `repos/${repo}/pulls/${number}/requested_reviewers`, "-f", `reviewers[]=${COPILOT_BOT}`]);
+  }
+}
+
+/** A PR-level (non-thread) comment — the watcher's stand-down notices. */
+export function comment_issue(repo: string, number: number, body: string): void {
+  _gh(["pr", "comment", String(number), "-R", repo, "--body", body]);
 }
