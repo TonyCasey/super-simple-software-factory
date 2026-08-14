@@ -303,6 +303,25 @@ stop-file (`sandbox-cmd <vm> 'touch ../pr-watch.stop'`).
 
 ## Stage G — Verification order
 
+> **DONE 2026-08-14 — the solv-platform pilot (PLFM-78) ran the whole loop
+> on a real ticket**: write-probe green (integration must be attached to
+> the TAG, not one VM — a web-UI step), triage passed on a favicon-scoped
+> brief with the ticket's attached favicon.ico handed into the VM (new
+> attachment pipeline), full SDLC on a fresh `solv-plfm-78` (node 24 +
+> yarn + redis via setup_cmds, Twenty seed), draft PR #26 against
+> protected `staging`, Tony's two inline "this file is not needed"
+> comments handled by the watcher (fix → delete → green → push → resolve),
+> merge → ticket "shipped" + harvest + auto-teardown. PLFM-82 exercised
+> the needs-info stop on the real board first (3 sharp questions, no VM).
+> Three live defects found and fixed: copied-in factories polluted PRs
+> (now .git/info/exclude'd), harvest failed on pins the host never
+> fetched (now fetches), and diff_matches_claims called deletions lies
+> (now git-aware). Product changes from Tony's review: workshop
+> artifacts stay out of PRs (doc becomes the PR body, 🤖 footer kept),
+> watcher replies unsigned by default. Known gap: the watcher reads only
+> inline review threads — plain PR conversation comments are invisible
+> to it.
+
 1. Stage A spike, findings recorded here.
 2. `tickets.ts` alone against a throwaway ClickUp task (fetch, comment,
    ladder up and back). `SSSF_DRY_RUN` path tested.
