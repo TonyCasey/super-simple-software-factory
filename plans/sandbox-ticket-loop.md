@@ -120,6 +120,13 @@ Findings land in this plan, as with the sandbox spike.
 
 ## Stage B — Shared plumbing (templates/adws/)
 
+> **DONE 2026-08-13 — all modules live-tested.** ClickUp driver measured
+> quirks: `custom_task_ids=true` makes ANY id parse as a custom id, so the
+> query string is sent only for `PLFM-123`-shaped refs; statuses are
+> LIST-level and matched case-insensitively at runtime; a missing mapped
+> status degrades to a ticket comment. `SSSF_DRY_RUN=1` verified on all
+> mutations.
+
 ### `adw_modules/data_types.ts` (modify)
 - `TicketSchema` — `{tool, id, url, title, description, status, comments[]}`.
 - `ClarityOutput` envelope — `clear: boolean`, `classification:
@@ -164,6 +171,11 @@ PR title `[<TICKET>] - <summary>`; body links the ticket URL.
 
 ## Stage C — Host ADW: `templates/adws/adw_ticket_ship.ts` (new)
 
+> **DONE 2026-08-13 — Gate 1 live-tested** on a deliberately vague ticket
+> (869ehz9y7): triager produced 5 questions, they were posted as a ticket
+> comment, the ticket moved to "needs info", and the run finished cleanly
+> without a VM.
+
 Thin chain; the ticket is the prompt source, so no positional prompt:
 
 ```
@@ -202,6 +214,13 @@ Justfile: `ship TICKET *ARGS`, `ship-watch TICKET`.
 
 ## Stage D — VM ADW: `templates/adws/adw_sdlc_pr.ts` (new)
 
+> **DONE 2026-08-13 — full ticket→PR run** on SF-36/869ehzjj9: triage →
+> VM `sssf-e2e-sf-36` → SDLC green → PR #2, ticket to "in review" with PR +
+> VM links. Defect found and fixed: with `clone_via: token` the origin
+> can't push tokenlessly — `remote.pr.enabled` now REQUIRES
+> `clone_via: integration` (validated at dispatch), and CLONE_SCRIPT
+> re-asserts the origin URL on VM reuse.
+
 `adw_simple_sdlc`'s exact chain (import and reuse its `main` if the seams
 allow; otherwise the same phase list) plus two phases after `commit_docs`:
 
@@ -215,6 +234,17 @@ Secrets phase (sandbox_dispatch, modify): when `remote.pr.enabled`, add
 error if `project.tool != none` but the ClickUp keys are missing host-side.
 
 ## Stage E — VM watcher: `templates/adws/adw_pr_watch.ts` (new, detached daemon)
+
+> **DONE 2026-08-14 — both cycle shapes live-tested on PR #2.**
+> Reply cycle: a human "are we open to SQL injection?" thread → classified
+> `reply`, answered with code evidence, left unresolved for the human.
+> Fix cycle: two real Copilot code-review findings → classified `fix`,
+> built, tests green, pushed, both threads replied + resolved, Copilot
+> re-requested. Learned: Copilot is unreachable by login — request via REST
+> as `copilot-pull-request-reviewer[bot]`; GraphQL reports the thread
+> author WITHOUT the `[bot]` suffix; Copilot reviews arrive async (~5 min)
+> and the pending-reviewer entry vanishes once submitted. Replies are
+> unsigned by default (`remote.pr.signature` opts in).
 
 One long-lived in-VM process, its own session in the VM trace (visible via
 `just sandbox-obs`). Cycles are numbered code phases; sleeps happen BETWEEN
