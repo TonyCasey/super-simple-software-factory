@@ -49,6 +49,18 @@ export function commit_all(message: string): string {
   return _git("rev-parse", "--short", "HEAD");
 }
 
+/**
+ * commit_all, but an already-clean tree returns "" instead of throwing — the
+ * PR flavor excludes workshop artifacts (specs/, app_docs/) from git, which
+ * legitimately leaves the plan and docs commits with nothing to record.
+ */
+export function commit_all_if_changed(message: string): string {
+  _git("add", "-A");
+  if (!_git("status", "--porcelain")) return "";
+  _git("commit", "-m", message);
+  return _git("rev-parse", "--short", "HEAD");
+}
+
 export function changed_files(): string[] {
   return _git("status", "--porcelain")
     .split("\n")
@@ -67,6 +79,15 @@ export function ref_exists(ref: string): boolean {
 
 export function rev(ref = "HEAD"): string {
   return _git("rev-parse", ref);
+}
+
+/** Commit subjects in a range, newest first; [] when the range doesn't resolve. */
+export function log_subjects(range: string): string[] {
+  try {
+    return _git("log", "--format=%s", range).split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 export function short_sha(ref = "HEAD"): string {

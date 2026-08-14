@@ -106,7 +106,10 @@ export async function chain(
   /** Commit what the preceding phase produced, in that agent's own words. */
   const commit = (ph: PhaseHandle, envelope: { commit_message: string; summary: string }): void => {
     const message = envelope.commit_message || `sssf(${run.adw_id}): ${envelope.summary}`;
-    ph.log({ sha: git_helper.commit_all(message), message });
+    const sha = git_helper.commit_all_if_changed(message);
+    // "" is legitimate: the PR flavor keeps specs/ and app_docs/ out of git,
+    // so the plan and docs commits may have nothing to record.
+    ph.log(sha ? { sha, message } : { commit: "(nothing tracked to commit)" });
   };
 
   /** Log a deterministic block's verdict — the same shape every ADW uses. */

@@ -121,6 +121,9 @@ observability:
 #     labels: []
 #     reviewers: []                # requested when the PR is created; "Copilot" works
 #     signature: ""                # appended to pr-watch replies; "" = unsigned
+#     include_workshop: false      # true -> specs/ + app_docs/ markdown is committed and
+#                                  # rides in the PR; default keeps them out of git and
+#                                  # uses the app doc as the PR body instead
 
 agents:
   - name: planner

@@ -21,6 +21,7 @@
  * pr_readback reads exactly {url, number, branch} from it over ssh.
  */
 
+import { appendFileSync, existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -48,6 +49,17 @@ export async function main(
   const cfg = agents.load_config(config);
   agents.validate(cfg, REQUIRED_AGENTS);
   const run = session.ensure(cfg, adw_id);
+
+  if (!cfg.remote.pr.include_workshop) {
+    // Workshop artifacts (the plan spec, the app doc) inform the run and the
+    // PR BODY, but do not ride in the PR as files. The chain's plan/docs
+    // commits tolerate the resulting empty trees.
+    const exclude = join(".git", "info", "exclude");
+    const current = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
+    for (const dir of ["/specs/", "/app_docs/"]) {
+      if (!current.includes(dir)) appendFileSync(exclude, `${dir}\n`);
+    }
+  }
 
   const result = await chain(run, prompt);
   if (!result.verified) {
@@ -85,16 +97,29 @@ export async function main(
       const title = ticket.ref
         ? `[${ticket.ref}] - ${ticket.title || prompt.split("\n")[0]}`
         : (prompt.split("\n")[0] ?? "SSSF run").slice(0, 90);
+      // The documenter's write-up IS the PR description — it describes the
+      // actual change. Fallback: the run's commit subjects.
+      let description = "";
+      if (existsSync("app_docs")) {
+        const docs = readdirSync("app_docs")
+          .filter((f) => f.endsWith(".md"))
+          .map((f) => join("app_docs", f))
+          .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
+        if (docs[0]) description = readFileSync(docs[0], "utf8").trim().slice(0, 20_000);
+      }
+      if (!description) {
+        description = git_helper
+          .log_subjects(`origin/${base}..${branch}`)
+          .map((s) => `- ${s}`)
+          .join("\n");
+      }
       const body = [
-        ticket.ref && ticket.url ? `Ticket: [${ticket.ref}](${ticket.url})` : "",
+        ticket.ref && ticket.url ? `Ticket: [${ticket.ref}](${ticket.url})\n` : "",
+        description,
         "",
-        "Built, tested, and reviewed by the SSSF factory inside sandbox " +
-          `\`${process.env.HOSTNAME ?? "vm"}\` (session \`${run.adw_id}\`).`,
-        "",
-        "- plan, code, and docs land as three commits, each in its author-agent's words",
-        "- the suite was green and the cross-family review approved before this PR was opened",
-        "",
-        "🤖 Generated with SSSF sandbox dispatch",
+        "---",
+        `🤖 Generated with SSSF sandbox dispatch — built, tested, and reviewed in ` +
+          `\`${process.env.HOSTNAME ?? "vm"}\` (session \`${run.adw_id}\`)`,
       ]
         .filter((line, i) => line !== "" || i !== 0)
         .join("\n");

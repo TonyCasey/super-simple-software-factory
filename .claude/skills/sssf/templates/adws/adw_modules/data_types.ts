@@ -542,6 +542,9 @@ export const RemotePrSchema = z.object({
   labels: z.array(z.string()).default([]),
   reviewers: z.array(z.string()).default([]), // requested on creation
   signature: z.string().default(""), // appended to watcher replies; "" = unsigned
+  // true -> the run's specs/ and app_docs/ markdown is committed and rides in
+  // the PR. Default: excluded from git; the doc becomes the PR body instead.
+  include_workshop: z.boolean().default(false),
 });
 
 export const RemoteConfigSchema = z.object({
