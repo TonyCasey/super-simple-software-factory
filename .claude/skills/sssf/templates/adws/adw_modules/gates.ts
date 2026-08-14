@@ -67,16 +67,20 @@ export function json_parses(envelope: EnvelopeBase, _run: any): GateReport {
   return report;
 }
 
-/** Every file claimed changed must exist on disk. */
+/** Every file claimed changed must exist on disk — or be a deletion git saw. */
 export function diff_matches_claims(envelope: EnvelopeBase, _run: any): GateReport {
   const report = new GateReport();
   for (const f of (envelope as any).changed_files ?? []) {
     const info = _stat(f);
-    report.check(
-      f,
-      info !== null,
-      info ? `exists, ${_size(info.size)}` : "claimed changed file does not exist",
-    );
+    if (info !== null) {
+      report.check(f, true, `exists, ${_size(info.size)}`);
+      continue;
+    }
+    // Removing a file IS a change (measured live: review said "delete this",
+    // the builder obliged, the old gate called that a lie).
+    const status = Bun.spawnSync(["git", "status", "--porcelain", "--", f]).stdout.toString().trim();
+    const deleted = /^.?D/.test(status);
+    report.check(f, deleted, deleted ? "deleted — change recorded by git" : "claimed changed file does not exist");
   }
   return report;
 }
