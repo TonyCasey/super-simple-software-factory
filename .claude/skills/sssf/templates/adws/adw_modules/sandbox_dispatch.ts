@@ -164,6 +164,9 @@ if [ "$use_token" = "token" ]; then
   git config --global credential.helper '!f(){ echo username=x-access-token; echo "password=$(cat ~/.gh-token)"; }; f'
 fi
 if [ -d app/.git ]; then
+  # A reused clone must FOLLOW a clone_via change — the origin URL decides
+  # whether pushes ride the integration (tokenless write) or github.com.
+  git -C app remote set-url origin "$repo_url"
   git -C app fetch --quiet origin || echo "WARN: fetch failed — using the clone as it stands" >&2
 else
   rm -rf app
@@ -271,6 +274,14 @@ export async function dispatch(opts: DispatchOptions): Promise<number> {
 export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<DispatchOutcome> {
   const cfg = run.cfg;
   const remote = cfg.remote;
+  if (remote.pr.enabled && remote.clone_via !== "integration") {
+    // The tokenless WRITE path exists only on the integration host — a
+    // github.com origin cloned with a read token cannot push the run branch.
+    throw new UsageError(
+      "remote.pr.enabled requires remote.clone_via: integration — the PR is pushed through the " +
+        "write-enabled exe.dev GitHub integration; a token clone's origin cannot push.",
+    );
+  }
 
   const vm_name = vm_name_for(remote, opts.ticket, Boolean(opts.fresh));
   const repo = derive_repo(remote);
@@ -349,6 +360,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       const args: string[] = [];
       if (interfaces.has("claude_code")) args.push("--claude");
       if (interfaces.has("codex")) args.push("--codex");
+      if (remote.pr.enabled) args.push("--gh"); // push + PR via the integration
       if (remote.postgres.enabled) {
         args.push(
           "--postgres",
@@ -519,6 +531,12 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
         const pg = remote.postgres;
         lines.push(`DATABASE_URL=postgres://${pg.user}:${pg.password}@127.0.0.1:5432/${pg.db}`);
         shipped.push("DATABASE_URL");
+      }
+      if (remote.pr.enabled) {
+        // Routes the VM's gh through the exe.dev integration: tokenless
+        // push/PR/threads, provided the repo's integration is WRITE-enabled.
+        lines.push("GH_HOST=github.int.exe.xyz");
+        shipped.push("GH_HOST -> exe.dev GitHub integration (tokenless PR)");
       }
       exe_dev.write_env(vm_name, APP_DIR, lines);
       ph.log({ shipped: shipped.join("; ") || "(nothing — roster needs no credentials)" });

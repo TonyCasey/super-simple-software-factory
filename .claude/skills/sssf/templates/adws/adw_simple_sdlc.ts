@@ -71,7 +71,7 @@ import * as sandbox_dispatch from "./adw_modules/sandbox_dispatch.ts";
 import * as session from "./adw_modules/session.ts";
 import * as utils from "./adw_modules/utils.ts";
 
-const REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"];
+export const REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"];
 const MAX_FIX_LOOPS = 3;
 const MAX_REVISION_LOOPS = 2;
 
@@ -88,6 +88,19 @@ export async function main(
   const cfg = agents.load_config(config);
   agents.validate(cfg, REQUIRED_AGENTS);
   const run = session.ensure(cfg, adw_id);
+  const result = await chain(run, prompt);
+  return run.finish(result.verified, result.reason);
+}
+
+/**
+ * The SDLC phase chain, runnable inside any existing session — this is how
+ * adw_sdlc_pr reuses the exact same plan/build/test/review/document sequence
+ * and appends its push/PR phases after it, with zero duplicated logic.
+ */
+export async function chain(
+  run: import("./adw_modules/runner.ts").Run,
+  prompt: string,
+): Promise<{ verified: boolean; reason: string }> {
   const baseline = git_helper.rev("HEAD"); // pinned before this run commits anything
 
   /** Commit what the preceding phase produced, in that agent's own words. */
@@ -333,7 +346,7 @@ export async function main(
     );
   }
 
-  return run.finish(verified, "the suite or the review never came back clean");
+  return { verified, reason: "the suite or the review never came back clean" };
 }
 
 if (import.meta.main) {

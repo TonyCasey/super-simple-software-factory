@@ -19,12 +19,13 @@ trap 'rc=$?; echo "" >&2; echo "[provision] FAILED during: ${STEP} (exit ${rc})"
 step() { STEP="$1"; echo ""; echo "── $1 ──────────────────────────────────"; }
 say()  { echo "   $*"; }
 
-WANT_CLAUDE=0; WANT_CODEX=0; WANT_PG=0
+WANT_CLAUDE=0; WANT_CODEX=0; WANT_PG=0; WANT_GH=0
 PG_VERSION=16; PG_DB=app; PG_USER=app; PG_PASSWORD=app
 while [ $# -gt 0 ]; do
   case "$1" in
     --claude) WANT_CLAUDE=1; shift ;;
     --codex)  WANT_CODEX=1; shift ;;
+    --gh)     WANT_GH=1; shift ;;
     --postgres)
       WANT_PG=1
       PG_VERSION="${2:?--postgres needs <version> <db> <user> <password>}"
@@ -110,6 +111,19 @@ if [ "$WANT_CODEX" = 1 ]; then
     # codex's launcher wants `node`; bun standing in works (spike-verified).
     [ -e /usr/local/bin/node ] || sudo ln -sf "$HOME/.bun/bin/bun" /usr/local/bin/node
     say "installed: $(codex --version 2>&1)"
+  fi
+fi
+
+# ── gh (PR-enabled dispatches: push + PR through the exe.dev integration) ────
+if [ "$WANT_GH" = 1 ]; then
+  step "gh"
+  if command -v gh >/dev/null 2>&1; then
+    say "already installed: $(gh --version | head -1)"
+  else
+    export DEBIAN_FRONTEND=noninteractive
+    sudo apt-get update -qq > /tmp/apt-update.log 2>&1
+    sudo apt-get install -y -qq gh > /tmp/apt-gh.log 2>&1
+    say "installed: $(gh --version | head -1)"
   fi
 fi
 
