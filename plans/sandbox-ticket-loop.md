@@ -273,6 +273,23 @@ stop-file (`sandbox-cmd <vm> 'touch ../pr-watch.stop'`).
 
 ## Stage F — Target repo onboarding (per repo; solv-platform's checklist)
 
+> **DONE 2026-08-14 (one manual step left: write-enable the integration).**
+> Fresh stamp on solv's `sssf-install` branch (replacing an untracked
+> pi-era trial). quality.ts: `nx affected -t test|lint|typecheck
+> --base=origin/staging` (e2e excluded). Config: Solv workspace
+> `90121693723`, measured PLFM ladder backlog/in development/in review/
+> shipped/cancelled (no needs-info status → comment degradation), remote
+> block with `setup_cmds` (node 24 + corepack yarn + redis — a new factory
+> hook added for this), Twenty-default postgres (`postgres:postgres@…/
+> default`) and `nx database:reset --configuration=seed` as seed_cmd
+> (db_seed timeout raised to 30m — it builds the server first). Verified
+> live: config parses, PLFM-120 fetched by custom id, ladder matches.
+> `staging` branch-protected via API (PRs required, 0 approvals — the
+> merge stays the sign-off; no force-push/delete). Lesson paid for:
+> `just demo` on a dirty tree while a concurrent commit cleans it →
+> permissions enforcement reads vanished dirt as agent-destroyed work and
+> fails the run. Keep git quiet while ADWs run.
+
 1. `/sssf install` into solv-platform; wire its real test command in
    `quality.ts` (scoped path, not bare `bun test`); real `seed_cmd`
    (migrations + seed — likely the fiddliest single item).
