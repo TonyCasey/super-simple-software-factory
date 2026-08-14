@@ -56,6 +56,8 @@ export interface SandboxRecord {
   pr_url?: string; // set by adw_ticket_ship's pr_readback
   pr_number?: number;
   watch_pid?: number; // the in-VM pr-watch daemon, when started
+  watch_adw_id?: string; // its session id — finalize mirrors its cycles to the ticket
+  progress_comment_id?: string; // the ticket's evolving progress comment
 }
 
 function record_dir(cfg: SSSFConfig): string {
@@ -247,6 +249,7 @@ export interface DispatchOptions {
   fresh?: boolean;
   detach?: boolean;
   extra_args?: string[]; // appended (quoted) to the in-VM ADW invocation
+  on_progress?: (line: string) => void; // milestone notes (adw_ticket_ship mirrors them to the ticket)
 }
 
 export interface DispatchOutcome {
@@ -285,6 +288,12 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
 
   const vm_name = vm_name_for(remote, opts.ticket, Boolean(opts.fresh));
   const repo = derive_repo(remote);
+  // Visibility must never break the run — every note is fire-and-forget.
+  const prog = (line: string) => {
+    try {
+      opts.on_progress?.(line);
+    } catch {}
+  };
   const interfaces = roster_interfaces(cfg);
   const host_head = git_helper.is_repo() ? git_helper.rev("HEAD") : "";
 
@@ -348,6 +357,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       return rec;
     },
   );
+  prog(`sandbox ${vm_name} up — ${record.https_url}`);
 
   await run.phase(
     PhaseParams({
@@ -378,6 +388,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       ph.log({ interfaces: [...interfaces].join(", "), postgres: remote.postgres.enabled });
     },
   );
+  prog(`toolchain provisioned${remote.postgres.enabled ? " (with postgres)" : ""}`);
 
   record = await run.phase(
     PhaseParams({
@@ -425,6 +436,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       return record;
     },
   );
+  prog(`repo cloned — branch ${record.run_branch}`);
 
   await run.phase(
     PhaseParams({
@@ -564,6 +576,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
         ph.log({ seed: pg.seed_cmd.join(" "), receipt: out.split("\n").slice(-4).join(" | ") });
       },
     );
+    prog("postgres seeded");
   }
 
   record = await run.phase(
@@ -592,6 +605,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       return record;
     },
   );
+  prog(`${opts.adw} started in the sandbox`);
 
   if (opts.detach) {
     await run.phase(
@@ -620,7 +634,11 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       description: "Poll the remote trace until the in-VM run reaches a terminal state",
     }),
     async (ph) => {
-      const outcome = await monitor(cfg, record, (note) => ph.log(note));
+      const outcome = await monitor(cfg, record, (note) => {
+        ph.log(note);
+        if (note.remote_phase) prog(`${opts.adw}: phase ${note.remote_phase}`);
+        if (note.remote_terminal) prog(`${opts.adw} finished: ${note.remote_terminal}`);
+      });
       return outcome;
     },
   );

@@ -46,6 +46,49 @@ const REQUIRED_AGENTS = ["triager"]; // the VM run validates its own roster
 const FINALIZE_POLL_S = 300; // merged-detection cadence — humans review in hours
 const FINALIZE_CEILING_S = 72 * 60 * 60; // then exit and say how to re-enter
 
+/**
+ * The ticket's live progress feed: ONE comment, created on the first note and
+ * rewritten in place after that — anyone on the board can see where the run
+ * is and where it stuck, without a notification per phase. Notes are queued
+ * on a promise chain (ClickUp writes stay ordered); flush() before finishing.
+ * Best-effort throughout: visibility must never break the run.
+ */
+function progress_mirror(cfg: ReturnType<typeof agents.load_config>, ticket_ref: string) {
+  const enabled = cfg.project.tool !== "none" && cfg.project.progress_comments;
+  const lines: string[] = [];
+  let comment_id = "";
+  let chain: Promise<void> = Promise.resolve();
+  const push = async () => {
+    const body = "[sssf] progress\n" + lines.join("\n");
+    try {
+      if (comment_id) await tickets.update_comment(cfg, comment_id, body);
+      else comment_id = await tickets.comment(cfg, ticket_ref, body);
+    } catch (error) {
+      console.error(`(progress mirror: ${error})`);
+    }
+  };
+  return {
+    note(line: string): void {
+      if (!enabled) return;
+      lines.push(`${new Date().toISOString().slice(11, 16)}  ${line}`);
+      chain = chain.then(push);
+    },
+    /** Re-attach to a prior run's comment (--watch-only) and keep its history. */
+    adopt(id: string, prior_body: string): void {
+      comment_id = id;
+      const prior = prior_body.split("\n").slice(1).filter(Boolean); // drop the header
+      lines.unshift(...prior);
+    },
+    id(): string {
+      return comment_id;
+    },
+    flush(): Promise<void> {
+      return chain;
+    },
+  };
+}
+type ProgressMirror = ReturnType<typeof progress_mirror>;
+
 /** The ticket IS the prompt: title + description + clarification comments. */
 function compose_prompt(ticket: Ticket): string {
   const ref = ticket.custom_id || ticket.id;
@@ -88,7 +131,18 @@ export async function main(
       }),
       (ph) => ph.log({ input: `[ship --watch-only ${ticket_ref}]`, pr: record.pr_url ?? "" }),
     );
-    const state = await finalize(run, cfg, ticket_ref, record);
+    const mirror = progress_mirror(cfg, ticket_ref);
+    if (record.progress_comment_id) {
+      const prior = await tickets.comment_text(cfg, ticket_ref, record.progress_comment_id).catch(() => "");
+      if (prior) mirror.adopt(record.progress_comment_id, prior);
+    }
+    mirror.note("watch re-entered — awaiting the human verdict on the PR");
+    const state = await finalize(run, cfg, ticket_ref, record, mirror);
+    await mirror.flush();
+    if (!record.progress_comment_id && mirror.id()) {
+      record.progress_comment_id = mirror.id();
+      sandbox_dispatch.save_record(cfg, record);
+    }
     return run.finish(state === "merged", state === "merged" ? "" : `PR ended '${state}'`);
   }
 
@@ -142,6 +196,13 @@ export async function main(
       ),
   );
 
+  const mirror = progress_mirror(cfg, ticket_ref);
+  mirror.note(
+    triage.clear
+      ? `triage: clear (${triage.classification}) — dispatching a sandbox`
+      : `triage: ${triage.questions.length} questions — needs info`,
+  );
+
   if (!triage.clear) {
     await run.phase(
       PhaseParams({
@@ -160,6 +221,7 @@ export async function main(
         ph.log({ questions: triage.questions.length, status: moved.moved ? moved.to : moved.note });
       },
     );
+    await mirror.flush();
     return run.finish(false, "needs-info — questions posted to the ticket");
   }
 
@@ -185,12 +247,18 @@ export async function main(
     config_path: config,
     fresh: flags.fresh,
     extra_args: ["--ticket", ref, "--ticket-title", ticket.title, "--ticket-url", ticket.url],
+    on_progress: (line) => mirror.note(line),
   });
   if (!outcome.accepted) {
+    mirror.note(`FAILED: ${outcome.reason}`);
+    await mirror.flush();
     await tickets.mirror_failure(cfg, ticket_ref, "sandbox run", outcome.reason);
     return run.finish(false, outcome.reason);
   }
   let record = outcome.record;
+  await mirror.flush(); // the comment now exists — remember it for --watch-only re-entry
+  record.progress_comment_id = mirror.id() || record.progress_comment_id;
+  sandbox_dispatch.save_record(cfg, record);
 
   record = await run.phase(
     PhaseParams({
@@ -230,8 +298,10 @@ export async function main(
       ph.log({ status: moved.moved ? moved.to : moved.note, pr: record.pr_url ?? "" });
     },
   );
+  mirror.note(`PR ready for review: ${record.pr_url}`);
 
   if (flags.no_watch) {
+    await mirror.flush();
     return run.finish(true);
   }
 
@@ -252,12 +322,15 @@ export async function main(
       const watch_id = new_id(8);
       const cmd = `bun adws/adw_pr_watch.ts ${record.pr_number} --adw-id ${watch_id}`;
       record.watch_pid = exe_dev.sh_detached(record.vm_name, APP_DIR, cmd, "../sssf-watch.log");
+      record.watch_adw_id = watch_id; // finalize mirrors this session's cycles to the ticket
       sandbox_dispatch.save_record(cfg, record);
       ph.log({ watch_pid: record.watch_pid, watch_adw_id: watch_id, log: "just sandbox-cmd — tail ../sssf-watch.log" });
+      mirror.note("review watcher running in the sandbox — feedback on the PR is handled automatically");
     },
   );
 
-  const state = await finalize(run, cfg, ticket_ref, record);
+  const state = await finalize(run, cfg, ticket_ref, record, mirror);
+  await mirror.flush();
   return run.finish(state === "merged", state === "merged" ? "" : `PR ended '${state}'`);
 }
 
@@ -271,6 +344,7 @@ async function finalize(
   cfg: ReturnType<typeof agents.load_config>,
   ticket_ref: string,
   record: sandbox_dispatch.SandboxRecord,
+  mirror: ProgressMirror,
 ): Promise<string> {
   return run.phase(
     PhaseParams({
@@ -281,9 +355,24 @@ async function finalize(
     }),
     async (ph: any) => {
       const started = Date.now();
+      let last_watch_phase = "";
       for (;;) {
+        // Mirror the in-VM watcher's cycles while we wait — review iteration
+        // is otherwise invisible from the board.
+        if (record.watch_adw_id) {
+          try {
+            const ws = exe_dev.remote_session(record.vm_name, APP_DIR, cfg.observability.db, record.watch_adw_id);
+            if (ws?.latest_phase && ws.latest_phase !== last_watch_phase) {
+              last_watch_phase = ws.latest_phase;
+              mirror.note(`pr-watch: ${ws.latest_phase} (${ws.phases} phases, ${ws.status})`);
+            }
+          } catch {
+            // the VM may be mid-teardown or unreachable; the PR poll decides
+          }
+        }
         const pr = github_vm.pr_state(record.repo, record.pr_number!);
         if (pr.state === "MERGED") {
+          mirror.note("PR merged — ticket to done, sandbox torn down");
           const moved = await tickets.transition(cfg, ticket_ref, "done");
           await tickets.comment(cfg, ticket_ref, `[sssf] PR merged: ${record.pr_url} — sandbox torn down.`);
           const harvested = sandbox_dispatch.harvest(cfg, record);
@@ -297,6 +386,7 @@ async function finalize(
           return "merged";
         }
         if (pr.state === "CLOSED") {
+          mirror.note("PR closed without merging — sandbox left up");
           await tickets.comment(
             cfg,
             ticket_ref,
@@ -306,6 +396,7 @@ async function finalize(
           return "closed";
         }
         if ((Date.now() - started) / 1000 > FINALIZE_CEILING_S) {
+          mirror.note(`no verdict after ${FINALIZE_CEILING_S / 3600}h — watch exited; re-enter with just ship-watch`);
           ph.log({
             still_open: record.pr_url ?? "",
             note: `no verdict after ${FINALIZE_CEILING_S / 3600}h — re-enter with: just ship-watch ${record.ticket}`,

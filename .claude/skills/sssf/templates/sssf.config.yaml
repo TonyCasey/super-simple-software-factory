@@ -56,12 +56,15 @@ observability:
 #
 # project:
 #   tool: clickup
+#   team_id: "2158290"             # the ClickUp workspace id — a setting, not a secret;
+#                                  # only CLICKUP_API_KEY stays in .env
 #   statuses:
 #     todo: backlog
 #     in_progress: in development
 #     in_review: in review
 #     done: shipped
 #     needs_info: ""               # "" = no such status on the board; comment-only
+#   progress_comments: true        # mirror run progress into ONE evolving ticket comment
 
 # Sandbox dispatch — `just sandbox-sdlc ABC-123 "<prompt>"` runs the whole SDLC
 # inside a per-ticket exe.dev VM instead of on this machine. Every field has a

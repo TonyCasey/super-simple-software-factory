@@ -34,9 +34,11 @@ function _key(): string {
   return key;
 }
 
-function _team(): string {
-  const team = (process.env.CLICKUP_TEAM_ID || "").trim();
-  if (!team) throw new TicketError("CLICKUP_TEAM_ID missing from .env — custom task ids cannot resolve without it");
+function _team(cfg: SSSFConfig): string {
+  // Settings live in sssf.config.yaml; .env carries only secrets. The env var
+  // survives as a fallback for configs written before project.team_id existed.
+  const team = (cfg.project.team_id || process.env.CLICKUP_TEAM_ID || "").trim();
+  if (!team) throw new TicketError("project.team_id missing from sssf.config.yaml — custom task ids cannot resolve without it");
   return team;
 }
 
@@ -67,8 +69,8 @@ async function _api(path: string, init: RequestInit = {}): Promise<any> {
  * the id AS a custom id — so it must be sent only for PLFM-123-shaped refs;
  * a raw task id (869ehvc2h) resolves only WITHOUT it.
  */
-function _query(id: string): string {
-  return /^[A-Za-z]+-\d+$/.test(id) ? `custom_task_ids=true&team_id=${_team()}` : "";
+function _query(cfg: SSSFConfig, id: string): string {
+  return /^[A-Za-z]+-\d+$/.test(id) ? `custom_task_ids=true&team_id=${_team(cfg)}` : "";
 }
 
 /** Fail fast, before any phase runs. Called by ADWs that need a ticket tool. */
@@ -77,14 +79,14 @@ export function validate(cfg: SSSFConfig): void {
     throw new TicketError("project.tool is 'none' — set `project: {tool: clickup}` in sssf.config.yaml");
   }
   _key();
-  _team();
+  _team(cfg);
 }
 
 // ── reads ────────────────────────────────────────────────────────────────────
 
 export async function fetch_ticket(cfg: SSSFConfig, id: string): Promise<Ticket> {
-  const task = await _api(`/task/${encodeURIComponent(id)}?${_query(id)}`);
-  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${_query(id)}`);
+  const task = await _api(`/task/${encodeURIComponent(id)}?${_query(cfg, id)}`);
+  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${_query(cfg, id)}`);
   return TicketSchema.parse({
     tool: cfg.project.tool,
     id: task.id,
@@ -109,15 +111,36 @@ export async function list_statuses(_cfg: SSSFConfig, list_id: string): Promise<
 
 // ── mutations (all honor SSSF_DRY_RUN=1) ─────────────────────────────────────
 
-export async function comment(_cfg: SSSFConfig, id: string, body: string): Promise<void> {
+/** Returns the new comment's id ("" on dry-run) so callers can edit it later. */
+export async function comment(cfg: SSSFConfig, id: string, body: string): Promise<string> {
   if (_dry_run()) {
     console.log(`[dry-run] ClickUp comment on ${id}: ${body.slice(0, 120)}`);
-    return;
+    return "";
   }
-  await _api(`/task/${encodeURIComponent(id)}/comment?${_query(id)}`, {
+  const created = await _api(`/task/${encodeURIComponent(id)}/comment?${_query(cfg, id)}`, {
     method: "POST",
     body: JSON.stringify({ comment_text: body }),
   });
+  return String(created.id ?? "");
+}
+
+/** Rewrite an existing comment in place — how the progress mirror stays ONE comment. */
+export async function update_comment(_cfg: SSSFConfig, comment_id: string, body: string): Promise<void> {
+  if (_dry_run()) {
+    console.log(`[dry-run] ClickUp update comment ${comment_id}: ${body.slice(0, 120)}`);
+    return;
+  }
+  await _api(`/comment/${encodeURIComponent(comment_id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ comment_text: body }),
+  });
+}
+
+/** A single comment's current text ("" if it no longer exists). */
+export async function comment_text(cfg: SSSFConfig, task_id: string, comment_id: string): Promise<string> {
+  const res = await _api(`/task/${encodeURIComponent(task_id)}/comment?${_query(cfg, task_id)}`);
+  const hit = (res.comments ?? []).find((c: any) => String(c.id) === comment_id);
+  return hit?.comment_text ?? "";
 }
 
 export interface TransitionResult {
@@ -157,7 +180,7 @@ export async function transition(
     console.log(`[dry-run] ClickUp transition ${id}: '${ticket.status}' -> '${match}'`);
     return { moved: true, from: ticket.status, to: match, note: "dry-run" };
   }
-  const updated = await _api(`/task/${encodeURIComponent(id)}?${_query(id)}`, {
+  const updated = await _api(`/task/${encodeURIComponent(id)}?${_query(cfg, id)}`, {
     method: "PUT",
     body: JSON.stringify({ status: match }),
   });

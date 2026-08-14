@@ -520,7 +520,13 @@ export const ProjectStatusesSchema = z.object({
 
 export const ProjectConfigSchema = z.object({
   tool: z.enum(["none", "clickup"]).default("none"),
+  // The ClickUp workspace (team) id — custom task ids (PLFM-123) cannot
+  // resolve without it. A setting, not a secret: it lives HERE, not in .env.
+  team_id: z.string().default(""),
   statuses: ProjectStatusesSchema.prefault({}),
+  // Mirror run progress into ONE evolving ticket comment (created once,
+  // edited in place — visibility without notification spam).
+  progress_comments: z.boolean().default(true),
 });
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 
