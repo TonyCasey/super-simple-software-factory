@@ -85,8 +85,9 @@ export function validate(cfg: SSSFConfig): void {
 // ── reads ────────────────────────────────────────────────────────────────────
 
 export async function fetch_ticket(cfg: SSSFConfig, id: string): Promise<Ticket> {
-  const task = await _api(`/task/${encodeURIComponent(id)}?${_query(cfg, id)}`);
-  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${_query(cfg, id)}`);
+  const q = _query(cfg, id);
+  const task = await _api(`/task/${encodeURIComponent(id)}?${q ? `${q}&` : ""}include_attachments=true`);
+  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${q}`);
   return TicketSchema.parse({
     tool: cfg.project.tool,
     id: task.id,
@@ -100,7 +101,32 @@ export async function fetch_ticket(cfg: SSSFConfig, id: string): Promise<Ticket>
       author: c.user?.username ?? "unknown",
       text: c.comment_text ?? "",
     })),
+    attachments: (task.attachments ?? []).map((a: any) => ({
+      title: a.title ?? "attachment",
+      url: a.url ?? "",
+    })),
   });
+}
+
+/**
+ * Download the ticket's attachments into `dir`; returns the written paths.
+ * Host-side only — the sandbox never holds the ticket-tool credential.
+ */
+export async function download_attachments(_cfg: SSSFConfig, ticket: Ticket, dir: string): Promise<string[]> {
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const paths: string[] = [];
+  if (!ticket.attachments.length) return paths;
+  mkdirSync(dir, { recursive: true });
+  for (const att of ticket.attachments) {
+    if (!att.url) continue;
+    const response = await fetch(att.url, { headers: { Authorization: _key() } });
+    if (!response.ok) throw new TicketError(`attachment '${att.title}' -> HTTP ${response.status}`);
+    const file = join(dir, att.title.replace(/[^\w.\-]/g, "_"));
+    writeFileSync(file, Buffer.from(await response.arrayBuffer()));
+    paths.push(file);
+  }
+  return paths;
 }
 
 /** The list's real status names, in board order. Statuses are LIST-level. */

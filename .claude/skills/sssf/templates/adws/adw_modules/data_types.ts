@@ -410,6 +410,9 @@ export const TicketSchema = z.object({
   status: z.string().default(""),
   list_id: z.string().default(""), // statuses are LIST-level in ClickUp (measured)
   comments: z.array(z.object({ author: z.string(), text: z.string() })).default([]),
+  // Files on the ticket. The VM has no ticket-tool key, so the HOST downloads
+  // these and hands them into the sandbox (~/ticket_attachments/).
+  attachments: z.array(z.object({ title: z.string(), url: z.string() })).default([]),
 });
 export type Ticket = z.infer<typeof TicketSchema>;
 

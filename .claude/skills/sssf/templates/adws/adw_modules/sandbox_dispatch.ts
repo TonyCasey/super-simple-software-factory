@@ -250,6 +250,7 @@ export interface DispatchOptions {
   detach?: boolean;
   extra_args?: string[]; // appended (quoted) to the in-VM ADW invocation
   on_progress?: (line: string) => void; // milestone notes (adw_ticket_ship mirrors them to the ticket)
+  handoff_files?: string[]; // host files copied to ~/ticket_attachments/ in the VM (ticket attachments)
 }
 
 export interface DispatchOutcome {
@@ -597,6 +598,25 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
       },
     );
     prog("postgres seeded");
+  }
+
+  if ((opts.handoff_files ?? []).length > 0) {
+    await run.phase(
+      PhaseParams({
+        name: "attachments",
+        kind: "code",
+        owner: "sandbox",
+        description: "Hand the ticket's files into the sandbox — the VM has no ticket-tool key",
+      }),
+      (ph) => {
+        exe_dev.sh(vm_name, "rm -rf ~/ticket_attachments && mkdir -p ~/ticket_attachments");
+        for (const file of opts.handoff_files!) {
+          exe_dev.rsync_to(vm_name, file, "ticket_attachments/");
+        }
+        ph.log({ files: opts.handoff_files!.length, dest: "~/ticket_attachments/" });
+      },
+    );
+    prog(`${opts.handoff_files!.length} ticket attachment(s) handed into the sandbox`);
   }
 
   record = await run.phase(

@@ -90,12 +90,23 @@ function progress_mirror(cfg: ReturnType<typeof agents.load_config>, ticket_ref:
 type ProgressMirror = ReturnType<typeof progress_mirror>;
 
 /** The ticket IS the prompt: title + description + clarification comments. */
-function compose_prompt(ticket: Ticket): string {
+function compose_prompt(ticket: Ticket, attachment_files: string[] = []): string {
   const ref = ticket.custom_id || ticket.id;
   const lines = [`# ${ref}: ${ticket.title}`, "", ticket.description.trim()];
   if (ticket.comments.length) {
     lines.push("", "## Ticket comments (clarifications from the humans)", "");
     for (const c of ticket.comments) lines.push(`- ${c.author}: ${c.text}`);
+  }
+  if (attachment_files.length) {
+    lines.push(
+      "",
+      "## Ticket attachments (files, already available in the sandbox)",
+      "",
+      "The following files from the ticket are at `~/ticket_attachments/` — use them",
+      "directly; do NOT try to download anything:",
+      "",
+    );
+    for (const f of attachment_files) lines.push(`- ~/ticket_attachments/${f.split("/").pop()}`);
   }
   return lines.join("\n");
 }
@@ -156,7 +167,7 @@ export async function main(
     (ph) => ph.log({ input: `[ship ${ticket_ref}]`, fresh: Boolean(flags.fresh) }),
   );
 
-  const { ticket, prompt } = await run.phase(
+  const { ticket, prompt, attachment_files } = await run.phase(
     PhaseParams({
       name: "fetch_ticket",
       kind: "code",
@@ -167,14 +178,16 @@ export async function main(
       const t = await tickets.fetch_ticket(cfg, ticket_ref);
       const ticket_json = join(run.context_handoff_dir, "ticket.json");
       writeFileSync(ticket_json, JSON.stringify(t, null, 2));
-      const p = compose_prompt(t);
+      const files = await tickets.download_attachments(cfg, t, join(run.context_handoff_dir, "attachments"));
+      const p = compose_prompt(t, files);
       ph.log({
         ticket: `${t.custom_id || t.id}: ${t.title}`,
         status: t.status,
         comments: t.comments.length,
+        attachments: files.length,
         brief_chars: p.length,
       });
-      return { ticket: t, prompt: p };
+      return { ticket: t, prompt: p, attachment_files: files };
     },
   );
 
@@ -248,6 +261,7 @@ export async function main(
     fresh: flags.fresh,
     extra_args: ["--ticket", ref, "--ticket-title", ticket.title, "--ticket-url", ticket.url],
     on_progress: (line) => mirror.note(line),
+    handoff_files: attachment_files,
   });
   if (!outcome.accepted) {
     mirror.note(`FAILED: ${outcome.reason}`);
