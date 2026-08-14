@@ -224,6 +224,13 @@ export function harvest(cfg: SSSFConfig, record: SandboxRecord): HarvestResult {
   exe_dev.rsync_from(record.vm_name, "/tmp/sbx.bundle", bundle);
 
   const repo_root = git_helper.repo_root();
+  // The VM pins to the REMOTE's head, which a stale host checkout may never
+  // have fetched (measured live on PLFM-78) — fetch before declaring the
+  // bundle unverifiable.
+  const have_pin = Bun.spawnSync(["git", "cat-file", "-e", record.pinned_sha], { cwd: repo_root });
+  if (have_pin.exitCode !== 0) {
+    Bun.spawnSync(["git", "fetch", "origin"], { cwd: repo_root });
+  }
   const verify = Bun.spawnSync(["git", "bundle", "verify", bundle], { cwd: repo_root });
   if (verify.exitCode !== 0) {
     throw new Error(`bundle verify failed: ${verify.stderr.toString().trim()}`);
