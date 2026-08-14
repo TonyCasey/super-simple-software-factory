@@ -30,10 +30,11 @@ import { PhaseParams } from "./data_types.ts";
 import * as exe_dev from "./exe_dev.ts";
 import { shq } from "./exe_dev.ts";
 import * as git_helper from "./git_helper.ts";
+import type { Run } from "./runner.ts";
 import * as session from "./session.ts";
 import { engineer_name, ensure_dir, new_id, now_iso, UsageError } from "./utils.ts";
 
-const APP_DIR = "app"; // where the repo lands on the VM, relative to $HOME
+export const APP_DIR = "app"; // where the repo lands on the VM, relative to $HOME
 const MONITOR_CEILING_S = 4 * 60 * 60; // a run that outlives this is a hang, not work
 
 // ── the dispatch record ──────────────────────────────────────────────────────
@@ -52,6 +53,9 @@ export interface SandboxRecord {
   pid: number;
   created_at: string;
   updated_at: string;
+  pr_url?: string; // set by adw_ticket_ship's pr_readback
+  pr_number?: number;
+  watch_pid?: number; // the in-VM pr-watch daemon, when started
 }
 
 function record_dir(cfg: SSSFConfig): string {
@@ -67,7 +71,7 @@ function load_record(cfg: SSSFConfig, vm_name: string): SandboxRecord | null {
   return existsSync(path) ? (JSON.parse(readFileSync(path, "utf8")) as SandboxRecord) : null;
 }
 
-function save_record(cfg: SSSFConfig, record: SandboxRecord): SandboxRecord {
+export function save_record(cfg: SSSFConfig, record: SandboxRecord): SandboxRecord {
   record.updated_at = now_iso();
   writeFileSync(record_path(cfg, record.vm_name), JSON.stringify(record, null, 2));
   return record;
@@ -81,7 +85,7 @@ function all_records(cfg: SSSFConfig): SandboxRecord[] {
 }
 
 /** Accepts a VM name or a ticket; a ticket must match exactly one record. */
-function find_record(cfg: SSSFConfig, handle: string): SandboxRecord {
+export function find_record(cfg: SSSFConfig, handle: string): SandboxRecord {
   const records = all_records(cfg);
   const by_vm = records.find((r) => r.vm_name === handle);
   if (by_vm) return by_vm;
@@ -239,12 +243,34 @@ export interface DispatchOptions {
   config_path: string;
   fresh?: boolean;
   detach?: boolean;
+  extra_args?: string[]; // appended (quoted) to the in-VM ADW invocation
 }
 
+export interface DispatchOutcome {
+  accepted: boolean;
+  reason: string;
+  detached: boolean;
+  record: SandboxRecord;
+  final: exe_dev.RemoteSession | null; // null when detached
+  harvested: HarvestResult | null; // null when detached
+}
+
+/** Standalone entry (the ADW `--sandbox` flag): own session, own exit code. */
 export async function dispatch(opts: DispatchOptions): Promise<number> {
   const cfg = agents.load_config(opts.config_path);
-  const remote = cfg.remote;
   const run = session.ensure(cfg, null);
+  const outcome = await dispatch_into(run, opts);
+  return run.finish(outcome.accepted, outcome.reason);
+}
+
+/**
+ * The dispatch phases, run INSIDE an existing session — this is how composed
+ * ADWs (adw_ticket_ship) get the whole vm→...→harvest chain in their own
+ * trace and keep control of the run's acceptance afterwards.
+ */
+export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<DispatchOutcome> {
+  const cfg = run.cfg;
+  const remote = cfg.remote;
 
   const vm_name = vm_name_for(remote, opts.ticket, Boolean(opts.fresh));
   const repo = derive_repo(remote);
@@ -535,7 +561,10 @@ export async function dispatch(opts: DispatchOptions): Promise<number> {
       // stale row still reads 'fail' until the relaunched process upserts it,
       // and a poll landing in that gap declares the new run dead at birth.
       record.remote_adw_id = new_id(8);
-      const cmd = `bun adws/adw_${opts.adw}.ts ${shq(opts.prompt)} --adw-id ${record.remote_adw_id}`;
+      const extra = (opts.extra_args ?? []).map(shq).join(" ");
+      const cmd =
+        `bun adws/adw_${opts.adw}.ts ${shq(opts.prompt)} --adw-id ${record.remote_adw_id}` +
+        (extra ? ` ${extra}` : "");
       // Log OUTSIDE the repo: a log growing inside the checkout reads as an
       // agent write and trips read-only rosters' permissions gate.
       const pid = exe_dev.sh_detached(vm_name, APP_DIR, cmd, "../sssf-run.log");
@@ -562,7 +591,7 @@ export async function dispatch(opts: DispatchOptions): Promise<number> {
           note: "VM is running and billing until `just sandbox-rm " + vm_name + "`",
         }),
     );
-    return run.finish(true);
+    return { accepted: true, reason: "", detached: true, record, final: null, harvested: null };
   }
 
   const final = await run.phase(
@@ -620,7 +649,14 @@ export async function dispatch(opts: DispatchOptions): Promise<number> {
     },
   );
 
-  return run.finish(accepted, `remote run ended '${final.status}'`);
+  return {
+    accepted,
+    reason: `remote run ended '${final.status}'`,
+    detached: false,
+    record,
+    final,
+    harvested,
+  };
 }
 
 // ── monitor loop (shared by dispatch and the watch CLI) ──────────────────────

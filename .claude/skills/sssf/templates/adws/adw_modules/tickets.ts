@@ -62,9 +62,13 @@ async function _api(path: string, init: RequestInit = {}): Promise<any> {
   return body;
 }
 
-/** The task-call query string that makes PLFM-style ids resolve. */
-function _custom(): string {
-  return `custom_task_ids=true&team_id=${_team()}`;
+/**
+ * The task-call query string. With `custom_task_ids=true` ClickUp interprets
+ * the id AS a custom id — so it must be sent only for PLFM-123-shaped refs;
+ * a raw task id (869ehvc2h) resolves only WITHOUT it.
+ */
+function _query(id: string): string {
+  return /^[A-Za-z]+-\d+$/.test(id) ? `custom_task_ids=true&team_id=${_team()}` : "";
 }
 
 /** Fail fast, before any phase runs. Called by ADWs that need a ticket tool. */
@@ -79,8 +83,8 @@ export function validate(cfg: SSSFConfig): void {
 // ── reads ────────────────────────────────────────────────────────────────────
 
 export async function fetch_ticket(cfg: SSSFConfig, id: string): Promise<Ticket> {
-  const task = await _api(`/task/${encodeURIComponent(id)}?${_custom()}`);
-  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${_custom()}`);
+  const task = await _api(`/task/${encodeURIComponent(id)}?${_query(id)}`);
+  const comments = await _api(`/task/${encodeURIComponent(id)}/comment?${_query(id)}`);
   return TicketSchema.parse({
     tool: cfg.project.tool,
     id: task.id,
@@ -110,7 +114,7 @@ export async function comment(_cfg: SSSFConfig, id: string, body: string): Promi
     console.log(`[dry-run] ClickUp comment on ${id}: ${body.slice(0, 120)}`);
     return;
   }
-  await _api(`/task/${encodeURIComponent(id)}/comment?${_custom()}`, {
+  await _api(`/task/${encodeURIComponent(id)}/comment?${_query(id)}`, {
     method: "POST",
     body: JSON.stringify({ comment_text: body }),
   });
@@ -153,7 +157,7 @@ export async function transition(
     console.log(`[dry-run] ClickUp transition ${id}: '${ticket.status}' -> '${match}'`);
     return { moved: true, from: ticket.status, to: match, note: "dry-run" };
   }
-  const updated = await _api(`/task/${encodeURIComponent(id)}?${_custom()}`, {
+  const updated = await _api(`/task/${encodeURIComponent(id)}?${_query(id)}`, {
     method: "PUT",
     body: JSON.stringify({ status: match }),
   });

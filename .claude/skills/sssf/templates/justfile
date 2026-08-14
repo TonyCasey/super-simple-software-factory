@@ -134,3 +134,15 @@ sandbox-rm VM:
     else
         echo "aborted — nothing destroyed"
     fi
+
+# ── ticket loop (ClickUp ticket -> reviewed PR, hands-free) ─────────────────
+# Setup: project: block + remote.pr.enabled in the config, ClickUp keys in
+# .env, and the repo's exe.dev GitHub integration WRITE-enabled.
+
+# ship a ticket end to end: just ship PLFM-123
+ship TICKET *ARGS:
+    bun adws/adw_ticket_ship.ts {{TICKET}} --config {{config}} "$@"
+
+# re-enter merged-detection for a shipped ticket (laptop was closed, etc.)
+ship-watch TICKET:
+    bun adws/adw_ticket_ship.ts {{TICKET}} --config {{config}} --watch-only
