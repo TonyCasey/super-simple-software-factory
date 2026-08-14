@@ -58,6 +58,7 @@ export interface SandboxRecord {
   watch_pid?: number; // the in-VM pr-watch daemon, when started
   watch_adw_id?: string; // its session id — finalize mirrors its cycles to the ticket
   progress_comment_id?: string; // the ticket's evolving progress comment
+  web_port?: number; // internal port the HTTPS proxy is pointed at (remote.web)
 }
 
 function record_dir(cfg: SSSFConfig): string {
@@ -246,6 +247,32 @@ export function harvest(cfg: SSSFConfig, record: SandboxRecord): HarvestResult {
   return { commits, ref, bundle };
 }
 
+// ── web exposure ─────────────────────────────────────────────────────────────
+
+export interface WebExposure {
+  url: string; // the public https_url
+  port: number; // the internal port the proxy now forwards to
+  public: boolean; // true = open to the world; false = gated behind exe.dev login
+}
+
+/**
+ * Point the VM's built-in HTTPS proxy at the app's internal port and set its
+ * access. Idempotent and independent of the run lifecycle — the mapping is a
+ * control-plane setting that persists on the box, so it is safe to apply before
+ * the app is even listening. `port: 0` leaves the provider default (8000)
+ * untouched and only (re)asserts the public/private gate. Returns the effective
+ * state, read back from the control plane.
+ */
+export function expose_web(remote: RemoteConfig, vm_name: string): WebExposure {
+  const web = remote.web;
+  if (web.port > 0) exe_dev.share_port(vm_name, web.port);
+  // Assert the gate every time: a reused VM may carry a previous run's setting.
+  if (web.public) exe_dev.set_public(vm_name);
+  else exe_dev.set_private(vm_name);
+  const show = exe_dev.share_show(vm_name);
+  return { url: show.url, port: show.port, public: show.status === "public" };
+}
+
 // ── dispatch ─────────────────────────────────────────────────────────────────
 
 export interface DispatchOptions {
@@ -397,6 +424,29 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
     },
   );
   prog(`toolchain provisioned${remote.postgres.enabled ? " (with postgres)" : ""}`);
+
+  if (remote.web.enabled) {
+    record = await run.phase(
+      PhaseParams({
+        name: "web",
+        kind: "code",
+        owner: "sandbox",
+        description: "Point the VM's HTTPS proxy at the app port; set public/private access",
+      }),
+      (ph) => {
+        const web = expose_web(remote, vm_name);
+        record.web_port = web.port;
+        save_record(cfg, record);
+        ph.log({
+          url: web.url,
+          proxy_port: web.port,
+          access: web.public ? "public (open to the world)" : "private (exe.dev login required)",
+        });
+        return record;
+      },
+    );
+    prog(`web exposed: ${record.https_url} -> :${record.web_port} (${remote.web.public ? "public" : "private"})`);
+  }
 
   record = await run.phase(
     PhaseParams({
@@ -671,6 +721,9 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
         ph.log({
           vm: vm_name,
           url: record.https_url,
+          web: remote.web.enabled
+            ? `${record.https_url} -> :${record.web_port} (${remote.web.public ? "public" : "private"})`
+            : undefined,
           watch: `just sandbox-watch ${opts.ticket}`,
           note: "VM is running and billing until `just sandbox-rm " + vm_name + "`",
         }),
@@ -730,6 +783,9 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
         url: record.https_url,
         teardown: `just sandbox-rm ${vm_name}   <- VM is still running and billing`,
       };
+      if (remote.web.enabled) {
+        payload.web = `${record.https_url} -> :${record.web_port} (${remote.web.public ? "public" : "private"})`;
+      }
       if (!accepted) {
         payload.run_log_tail = exe_dev.sh(vm_name, "tail -n 15 ../sssf-run.log || true", { cwd: APP_DIR }).slice(-1500);
       }
@@ -850,6 +906,34 @@ function cli_sync(cfg: SSSFConfig, handle: string): void {
   console.log(local_db);
 }
 
+/** Expose (or re-expose) a running VM's web app. CLI args override remote.web. */
+function cli_web(
+  cfg: SSSFConfig,
+  handle: string,
+  port_arg: string | undefined,
+  want_public: boolean,
+  want_private: boolean,
+): number {
+  if (want_public && want_private) {
+    console.error("pass at most one of --public / --private");
+    return 2;
+  }
+  const record = find_record(cfg, handle);
+  const port = port_arg !== undefined ? Number(port_arg) : cfg.remote.web.port;
+  if (port_arg !== undefined && (!Number.isInteger(port) || port <= 0)) {
+    console.error(`port must be a positive integer, got '${port_arg}'`);
+    return 2;
+  }
+  const is_public = want_public ? true : want_private ? false : cfg.remote.web.public;
+  const web = expose_web({ ...cfg.remote, web: { enabled: true, port, public: is_public } }, record.vm_name);
+  record.web_port = web.port;
+  save_record(cfg, record);
+  console.log(
+    `${web.url} -> :${web.port} (${web.public ? "public — anyone with the URL" : "private — exe.dev login required"})`,
+  );
+  return 0;
+}
+
 function cli_rm(cfg: SSSFConfig, vm_name: string, yes: boolean): number {
   if (!all_records(cfg).some((r) => r.vm_name === vm_name)) {
     console.error(`no sandbox record for VM '${vm_name}' — sandbox-rm takes the exact VM name from sandbox-ls`);
@@ -873,12 +957,15 @@ if (import.meta.main) {
     options: {
       config: { type: "string", default: "adws/adw_sssf_config/sssf.config.yaml" },
       yes: { type: "boolean", default: false },
+      public: { type: "boolean", default: false },
+      private: { type: "boolean", default: false },
     },
     allowPositionals: true,
   });
   const [command, handle] = positionals;
   const usage =
-    "usage: bun adws/adw_modules/sandbox_dispatch.ts <ls | watch <ticket|vm> | harvest <ticket|vm> | sync <ticket|vm> | rm <vm> --yes> [--config PATH]";
+    "usage: bun adws/adw_modules/sandbox_dispatch.ts <ls | watch <ticket|vm> | harvest <ticket|vm> | " +
+    "sync <ticket|vm> | web <ticket|vm> [port] [--public|--private] | rm <vm> --yes> [--config PATH]";
   await session.cli(async () => {
     const cfg = agents.load_config(values.config);
     switch (command) {
@@ -896,6 +983,9 @@ if (import.meta.main) {
         if (!handle) throw new UsageError(usage);
         cli_sync(cfg, handle);
         return 0;
+      case "web":
+        if (!handle) throw new UsageError(usage);
+        return cli_web(cfg, handle, positionals[2], values.public, values.private);
       case "rm":
         if (!handle) throw new UsageError(usage);
         return cli_rm(cfg, handle, values.yes);

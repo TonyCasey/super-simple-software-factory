@@ -124,6 +124,13 @@ observability:
 #     include_workshop: false      # true -> specs/ + app_docs/ markdown is committed and
 #                                  # rides in the PR; default keeps them out of git and
 #                                  # uses the app doc as the PR body instead
+#   web:                           # serve a web app off the VM's built-in HTTPS proxy
+#     enabled: false               # true -> a `web` dispatch phase wires https://<vm>.exe.xyz
+#     port: 0                      # internal port the app listens on (e.g. 3001);
+#                                  # 0 = leave the provider default (8000)
+#     public: false                # false -> gated behind exe.dev login (good for previews);
+#                                  # true -> open to anyone with the URL
+#                                  # (ad hoc: just sandbox-web <ticket|vm> 3001 --public)
 
 agents:
   - name: planner

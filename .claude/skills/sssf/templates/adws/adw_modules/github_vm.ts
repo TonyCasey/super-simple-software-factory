@@ -193,7 +193,28 @@ export function request_review(repo: string, number: number, reviewers: string[]
   }
 }
 
-/** A PR-level (non-thread) comment — the watcher's stand-down notices. */
-export function comment_issue(repo: string, number: number, body: string): void {
-  _gh(["pr", "comment", String(number), "-R", repo, "--body", body]);
+/** A comment on the PR's conversation tab — no file, no line, no thread. */
+export interface IssueComment {
+  comment_id: number;
+  author: string;
+  body: string;
+}
+
+export function issue_comments(repo: string, number: number): IssueComment[] {
+  const raw = JSON.parse(_gh(["api", `repos/${repo}/issues/${number}/comments`, "--paginate"]));
+  return (raw as any[]).map((c) => ({
+    comment_id: Number(c.id ?? 0),
+    author: String(c.user?.login ?? "unknown"),
+    body: String(c.body ?? ""),
+  }));
+}
+
+/**
+ * A PR-level (conversation) comment. Returns the created comment's id — the
+ * watcher MUST record it as handled, because through an act-as-user
+ * integration its own replies are indistinguishable from the human's.
+ */
+export function comment_issue(repo: string, number: number, body: string): number {
+  const raw = JSON.parse(_gh(["api", `repos/${repo}/issues/${number}/comments`, "-f", `body=${body}`]));
+  return Number(raw.id ?? 0);
 }

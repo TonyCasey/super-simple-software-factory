@@ -113,6 +113,10 @@ sandbox-harvest TICKET:
 sandbox-cmd VM +CMD:
     ssh -o BatchMode=yes {{VM}}.exe.xyz 'cd app && {{CMD}}'
 
+# point the VM's HTTPS proxy at an app port: just sandbox-web <ticket|vm> 3001 --public
+sandbox-web TICKET *ARGS:
+    bun adws/adw_modules/sandbox_dispatch.ts web {{TICKET}} {{ARGS}} --config {{config}}
+
 # follow the detached run's log: just sandbox-tail <vm>
 sandbox-tail VM:
     ssh -o BatchMode=yes {{VM}}.exe.xyz 'tail -f sssf-run.log'

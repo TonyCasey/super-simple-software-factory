@@ -21,6 +21,7 @@ export interface VmInfo {
   vm_name: string;
   https_url: string;
   ssh_dest: string;
+  proxy_port: number; // internal port https_url forwards to; provider default 8000
 }
 
 const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new"];
@@ -95,6 +96,7 @@ export function ensure_vm(
       vm_name: parsed.vm_name,
       https_url: parsed.https_url ?? `https://${parsed.vm_name}.exe.xyz`,
       ssh_dest: parsed.ssh_dest ?? `${parsed.vm_name}.exe.xyz`,
+      proxy_port: parsed.proxy_port ?? 8000,
     };
   }
   const found = ls().find((vm) => vm.vm_name === name);
@@ -106,6 +108,47 @@ export function ensure_vm(
 export function rm(name: string): void {
   const r = _run(["ssh", ...SSH_OPTS, "exe.dev", "rm", name]);
   if (r.code !== 0) throw new ExeDevError(`ssh exe.dev rm ${name} failed: ${r.stderr.trim()}`);
+}
+
+// ── HTTPS proxy (web serving) ────────────────────────────────────────────────
+// Every VM is fronted by an exe.dev TLS reverse proxy at `https_url`
+// (`https://<name>.exe.xyz`) that forwards to ONE internal port — provider
+// default 8000. These `share` verbs remap that port and set who may reach it;
+// the tag-scoped key allows them (unlike billing / integrations attach).
+// Measured 2026-08-14: a remap takes effect immediately and does not require the
+// target port to be listening yet — the mapping is a setting, not a health check.
+
+export interface WebShare {
+  port: number; // the internal port the proxy currently forwards to
+  status: string; // "public" (open) | "private" (exe.dev login required)
+  url: string; // the public https_url
+}
+
+/** Point the VM's HTTPS proxy at `port` on the box. */
+export function share_port(vm: string, port: number): void {
+  const r = _run(["ssh", ...SSH_OPTS, "exe.dev", "share", "port", vm, String(port)]);
+  if (r.code !== 0) throw new ExeDevError(`ssh exe.dev share port ${vm} ${port} failed: ${(r.stdout + r.stderr).trim()}`);
+}
+
+/** Open the HTTPS proxy to anyone with the URL (no exe.dev auth). */
+export function set_public(vm: string): void {
+  const r = _run(["ssh", ...SSH_OPTS, "exe.dev", "share", "set-public", vm]);
+  if (r.code !== 0) throw new ExeDevError(`ssh exe.dev share set-public ${vm} failed: ${(r.stdout + r.stderr).trim()}`);
+}
+
+/** Restrict the HTTPS proxy to authenticated exe.dev users (the box's default). */
+export function set_private(vm: string): void {
+  const r = _run(["ssh", ...SSH_OPTS, "exe.dev", "share", "set-private", vm]);
+  if (r.code !== 0) throw new ExeDevError(`ssh exe.dev share set-private ${vm} failed: ${(r.stdout + r.stderr).trim()}`);
+}
+
+/** Read the proxy's current port and access status. */
+export function share_show(vm: string): WebShare {
+  const r = _run(["ssh", ...SSH_OPTS, "exe.dev", "share", "show", vm, "--json"]);
+  // exe.dev returns `{"error": ...}` on stdout, not stderr — surface both.
+  if (r.code !== 0) throw new ExeDevError(`ssh exe.dev share show ${vm} failed: ${(r.stdout + r.stderr).trim()}`);
+  const p = JSON.parse(r.stdout) as { port?: number; status?: string; url?: string };
+  return { port: p.port ?? 0, status: p.status ?? "", url: p.url ?? `https://${vm}.exe.xyz` };
 }
 
 // ── data plane ───────────────────────────────────────────────────────────────

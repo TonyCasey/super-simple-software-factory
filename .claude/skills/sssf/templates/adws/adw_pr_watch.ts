@@ -9,12 +9,15 @@
  * code phases (poll_1, classify_1, ...); SLEEPS HAPPEN BETWEEN PHASES so the
  * trace shows instant polls, never phases that lie about their duration.
  *
- * Per cycle: poll the PR's unresolved review threads (minus the ones already
- * handled) → comment_triager classifies every one exactly once (fix / reply /
- * clarify) → the builder executes the fix items → the repo's own test gate —
- * red work is never pushed → ff-sync + push → inline replies to every item,
- * resolving ONLY what is fixed, green, and pushed → re-request the reviewers
- * whose findings were fixed, once per reviewer per session.
+ * Per cycle: poll the PR's unresolved review threads AND new conversation-tab
+ * comments (first poll baselines existing conversation — a watcher serves
+ * comments that arrive while it watches, not history) → comment_triager
+ * classifies every one exactly once (fix / reply / clarify) → the builder
+ * executes the fix items → the repo's own test gate — red work is never
+ * pushed → ff-sync + push → replies to every item (inline for threads,
+ * quoted conversation comments for the rest), resolving ONLY threads that
+ * are fixed, green, and pushed → re-request the reviewers whose findings
+ * were fixed, once per reviewer per session.
  *
  * Boundaries, deliberate:
  *   - Never merges, approves, or closes; never touches ClickUp (no key here —
@@ -47,6 +50,13 @@ const STOP_FILE = `${process.env.HOME ?? "."}/pr-watch.stop`;
 interface WatchState {
   handled_threads: string[]; // resolved or replied-to — never re-triaged
   rerequested: string[]; // reviewers pinged this session — once each
+  // Conversation (non-thread) comments already handled — INCLUDING the
+  // watcher's own replies, which an act-as-user integration posts as the
+  // human. Missing one means answering yourself forever.
+  handled_comments: number[];
+  // First poll seeds handled_comments with everything already on the PR: a
+  // watcher serves comments that arrive while it watches, not history.
+  comments_baselined: boolean;
 }
 
 export async function main(
@@ -64,7 +74,9 @@ export async function main(
   const state_path = join(run.session_dir, "pr_watch_state.json");
   const state: WatchState = existsSync(state_path)
     ? (JSON.parse(readFileSync(state_path, "utf8")) as WatchState)
-    : { handled_threads: [], rerequested: [] };
+    : { handled_threads: [], rerequested: [], handled_comments: [], comments_baselined: false };
+  state.handled_comments ??= []; // resume across the field's introduction
+  state.comments_baselined ??= false;
   const save_state = () => writeFileSync(state_path, JSON.stringify(state, null, 2));
 
   const pr_author = JSON.parse(
@@ -109,11 +121,39 @@ export async function main(
       }),
       (ph) => {
         const pr = github_vm.pr_state(repo, pr_number);
-        const threads = pr.state === "OPEN"
-          ? github_vm.unresolved_threads(repo, pr_number).filter((t) => !state.handled_threads.includes(t.thread_id))
-          : [];
+        let threads: Array<ReturnType<typeof github_vm.unresolved_threads>[number]> = [];
+        let conversation = 0;
+        if (pr.state === "OPEN") {
+          threads = github_vm
+            .unresolved_threads(repo, pr_number)
+            .filter((t) => !state.handled_threads.includes(t.thread_id));
+          // Conversation-tab comments ride the same cycle as pseudo-threads.
+          const comments = github_vm.issue_comments(repo, pr_number);
+          if (!state.comments_baselined) {
+            state.handled_comments.push(...comments.map((c) => c.comment_id));
+            state.comments_baselined = true;
+            save_state();
+          }
+          const fresh = comments.filter((c) => !state.handled_comments.includes(c.comment_id));
+          conversation = fresh.length;
+          threads.push(
+            ...fresh.map((c) => ({
+              thread_id: `issue:${c.comment_id}`,
+              comment_id: c.comment_id,
+              author: c.author,
+              path: "(PR conversation)",
+              body: c.body,
+              replies: 0,
+            })),
+          );
+        }
         writeFileSync(join(run.context_handoff_dir, "pr_threads.json"), JSON.stringify(threads, null, 2));
-        ph.log({ pr_state: pr.state, review_decision: pr.review_decision || "-", new_threads: threads.length });
+        ph.log({
+          pr_state: pr.state,
+          review_decision: pr.review_decision || "-",
+          new_threads: threads.length - conversation,
+          new_conversation: conversation,
+        });
         return { pr, threads };
       },
     );
@@ -154,6 +194,7 @@ export async function main(
       ...item,
       comment_id: by_thread.get(item.thread_id)?.comment_id ?? item.comment_id,
       author: by_thread.get(item.thread_id)?.author ?? "unknown",
+      body: by_thread.get(item.thread_id)?.body ?? "",
     }));
     const fixes = items.filter((i) => i.kind === "fix");
 
@@ -271,17 +312,26 @@ export async function main(
       }),
       (ph) => {
         let resolved = 0;
+        const signature = cfg.remote.pr.signature.trim();
         for (const item of items) {
           const fixed_and_shipped = item.kind === "fix" && fixes_green;
           const text =
             item.kind === "fix" && !fixes_green
               ? `${item.reply}\n\n(The fix did not pass the test suite safely — leaving this unresolved for a human look.)`
               : item.reply;
-          const signature = cfg.remote.pr.signature.trim();
-          github_vm.reply(repo, pr_number, item.comment_id, signature ? `${text}\n\n${signature}` : text);
-          if (fixed_and_shipped) {
-            github_vm.resolve_thread(item.thread_id);
-            resolved += 1;
+          const body = signature ? `${text}\n\n${signature}` : text;
+          if (item.thread_id.startsWith("issue:")) {
+            // Conversation comment: reply in the conversation, quoting what we
+            // answer. Record BOTH ids — ours comes back as the human's.
+            const quote = item.body.split("\n").map((l: string) => `> ${l}`).join("\n");
+            const posted = github_vm.comment_issue(repo, pr_number, `${quote}\n\n${body}`);
+            state.handled_comments.push(item.comment_id, posted);
+          } else {
+            github_vm.reply(repo, pr_number, item.comment_id, body);
+            if (fixed_and_shipped) {
+              github_vm.resolve_thread(item.thread_id);
+              resolved += 1;
+            }
           }
           state.handled_threads.push(item.thread_id);
         }

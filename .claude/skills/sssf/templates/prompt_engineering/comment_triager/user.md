@@ -18,6 +18,8 @@
 
 Read `<context_handoff_dir>/pr_threads.json` — the unresolved review threads on this PR. For each, read the code the thread points at, then classify it as `fix`, `reply`, or `clarify` with the reply text (and a `fix_instruction` for fixes). Every thread appears exactly once. Then emit your `Report` JSON.
 
+An item whose `path` is `(PR conversation)` is a top-level comment from the PR's conversation tab — it has no code anchor. Classify it exactly the same way; for a `fix`, work out which code it means from the comment text and the PR's diff.
+
 ## Report
 
 Respond with ONLY valid JSON matching `CommentTriageOutput` — no prose before or after:

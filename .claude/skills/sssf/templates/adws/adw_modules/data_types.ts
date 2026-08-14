@@ -547,6 +547,18 @@ export const RemotePrSchema = z.object({
   include_workshop: z.boolean().default(false),
 });
 
+// Serve a long-running web app off the VM. exe.dev fronts every box with a TLS
+// reverse proxy at https_url that forwards to ONE internal port (provider
+// default 8000). `port` remaps it to wherever the app listens; `public` opens
+// it to the world versus gating it behind exe.dev login (the default). The
+// mapping is a control-plane setting that persists on the box — orthogonal to
+// whether any ADW is still running.
+export const RemoteWebSchema = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().int().default(0), // internal app port; 0 = leave the provider default (8000)
+  public: z.boolean().default(false), // true -> anyone with the URL; false -> authenticated exe.dev users only
+});
+
 export const RemoteConfigSchema = z.object({
   vm_prefix: z.string().default(""), // VM name prefix; "" = repo directory name
   tag: z.string().default(""), // required with a tag-scoped exe.dev SSH key
@@ -573,6 +585,7 @@ export const RemoteConfigSchema = z.object({
   setup_cmds: z.array(z.string()).default([]),
   postgres: RemotePostgresSchema.prefault({}),
   pr: RemotePrSchema.prefault({}),
+  web: RemoteWebSchema.prefault({}), // expose a web app through the VM's HTTPS proxy
   env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM
 });
 export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;
