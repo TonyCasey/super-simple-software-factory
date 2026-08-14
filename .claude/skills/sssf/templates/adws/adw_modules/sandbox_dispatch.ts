@@ -463,6 +463,24 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
     },
   );
 
+  if (remote.setup_cmds.length > 0) {
+    await run.phase(
+      PhaseParams({
+        name: "setup",
+        kind: "code",
+        owner: "sandbox",
+        description: "Repo-specific toolchain: remote.setup_cmds, in order, in the clone",
+      }),
+      (ph) => {
+        for (const cmd of remote.setup_cmds) {
+          exe_dev.sh(vm_name, cmd, { cwd: APP_DIR, timeout_ms: 1_800_000 });
+        }
+        ph.log({ setup_cmds: remote.setup_cmds.length });
+      },
+    );
+    prog("repo toolchain set up (setup_cmds)");
+  }
+
   await run.phase(
     PhaseParams({
       name: "secrets",
@@ -570,7 +588,9 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
           vm_name,
           `cd "$HOME/${APP_DIR}" || exit 1\n` + guest_script("seed.sh"),
           [url, ...pg.seed_cmd],
-          { timeout_ms: 600_000 },
+          // Generous: a monorepo's seed may build the server first (nx
+          // database:reset dependsOn build — measured on solv-platform).
+          { timeout_ms: 1_800_000 },
         );
         if (!out.includes("[seed] DONE")) throw new Error("seed.sh finished without DONE");
         ph.log({ seed: pg.seed_cmd.join(" "), receipt: out.split("\n").slice(-4).join(" | ") });

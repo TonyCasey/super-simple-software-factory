@@ -561,6 +561,10 @@ export const RemoteConfigSchema = z.object({
   codex_auth: z.enum(["gateway", "auth_file"]).default("gateway"),
   sync_interval_s: z.number().int().default(30), // monitor poll cadence
   adws_dirs: z.array(z.string()).default(["adws", "justfile"]), // copied in when the clone has no factory
+  // Repo-specific toolchain, run IN THE CLONE after the factory phase and
+  // before db_seed (node, yarn install, redis, ...). Each command must be
+  // idempotent — VM reuse re-runs the list.
+  setup_cmds: z.array(z.string()).default([]),
   postgres: RemotePostgresSchema.prefault({}),
   pr: RemotePrSchema.prefault({}),
   env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM

@@ -98,6 +98,11 @@ observability:
 #   adws_dirs:                     # copied host -> VM when the clone has no committed factory
 #     - adws
 #     - justfile
+#   setup_cmds: []                 # repo toolchain, run in the clone after the factory phase and
+#                                  # before db_seed; each command MUST be idempotent (VM reuse
+#                                  # re-runs the list), e.g.
+#                                  #   - "sudo apt-get install -y redis-server"
+#                                  #   - "yarn install --immutable"
 #   postgres:
 #     enabled: false               # true -> apt install postgres, create role+db, export DATABASE_URL
 #     version: 16
