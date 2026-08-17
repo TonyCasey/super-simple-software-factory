@@ -39,11 +39,131 @@ defaults:
     - adws/adw_modules/
     - adws/adw_sssf_config/
     - adws/adw_*.ts
+    - adws/sandbox/                # guest provision/seed scripts — an in-VM agent
+                                   # must not edit what provisioned its own box
   data_dir: adws/adw_data          # runtime home: {data_dir}/sessions/{adw_id}/{agent_name}/
 
 observability:
   db: adws/adw_data/sssf.db        # tracer writes here directly; the UI polls it
   poll_ms: 500                     # visualizer live-poll cadence
+
+# Ticket tool — `just ship ABC-123` fetches the ticket, triages it host-side,
+# and drives the whole sandbox loop from it (cookbooks/sandbox.md). `tool: none`
+# (the default) disables all of it. Status VALUES are per-repo: they map the
+# generic ladder onto the names the ticket's LIST actually uses — the driver
+# fetches the real names at runtime and degrades to a comment when one is
+# missing. Secrets (CLICKUP_API_KEY, CLICKUP_TEAM_ID) live in .env, never here.
+#
+# project:
+#   tool: clickup
+#   team_id: "2158290"             # the ClickUp workspace id — a setting, not a secret;
+#                                  # only CLICKUP_API_KEY stays in .env
+#   statuses:
+#     todo: backlog
+#     in_progress: in development
+#     in_review: in review
+#     done: shipped
+#     needs_info: ""               # "" = no such status on the board; comment-only
+#   progress_comments: true        # mirror run progress into ONE evolving ticket comment
+
+# Sandbox dispatch — `just sandbox-sdlc ABC-123 "<prompt>"` runs the whole SDLC
+# inside a per-ticket exe.dev VM instead of on this machine. Every field has a
+# working default; uncomment what your repo needs. Two facts to hold on to:
+# exe.dev VMs are PERSISTENT AND BILL UNTIL `just sandbox-rm`, and nothing in
+# the dispatch ever destroys one — teardown is always your explicit call.
+# Full walk-through: cookbooks/sandbox.md.
+#
+# remote:
+#   vm_prefix: ""                  # VM name prefix; "" = this repo's directory name.
+#                                  # Ticket ABC-123 -> VM <prefix>-abc-123 -> https://<prefix>-abc-123.exe.xyz
+#   tag: ""                        # REQUIRED when your exe.dev SSH key is tag-scoped —
+#                                  # the key can only create VMs carrying its tag
+#   cpu: 0                         # 0 / "" = provider defaults (2 cpu, 8GB, 25GB measured)
+#   memory: ""                     # e.g. "8GB"
+#   disk: ""                       # e.g. "20GB"
+#   repo: ""                       # owner/name to clone; "" = derived from `git remote get-url origin`
+#   clone_via: integration         # integration -> github.int.exe.xyz, NO token on the VM
+#                                  #   (needs the repo's exe.dev GitHub integration, --readonly is enough)
+#                                  # token -> github.com with GH_TOKEN from .env (contents:read PAT)
+#   claude_auth: subscription      # subscription -> ship CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`),
+#                                  #   runs bill your Claude plan, flat — the default
+#                                  # gateway -> keyless llm.int.exe.xyz, zero credentials on the box,
+#                                  #   but bills the exe.dev token allocation at API list rates
+#   codex_auth: gateway            # gateway -> keyless llm.int.exe.xyz provider in the VM's
+#                                  #   ~/.codex/config.toml (default; bills the exe.dev allocation)
+#                                  # auth_file -> copy ~/.codex/auth.json. AVOID: OpenAI rotates
+#                                  #   refresh tokens, so a shared auth.json corrupts whichever
+#                                  #   side refreshes second — including your local login
+#   sync_interval_s: 30            # monitor poll + trace-sync cadence
+#   adws_dirs:                     # copied host -> VM when the clone has no committed factory
+#     - adws
+#     - justfile
+#   setup_cmds: []                 # repo toolchain, run in the clone after the factory phase and
+#                                  # before db_seed; each command MUST be idempotent (VM reuse
+#                                  # re-runs the list), e.g.
+#                                  #   - "sudo apt-get install -y redis-server"
+#                                  #   - "yarn install --immutable"
+#   postgres:
+#     enabled: false               # true -> apt install postgres, create role+db, export DATABASE_URL
+#     version: 16
+#     db: app
+#     user: app
+#     password: app                # VM-local database; rotate nothing, it dies with the VM
+#     seed_cmd: []                 # run in the clone root with DATABASE_URL set,
+#                                  # e.g. ["bun", "run", "db:setup"] or ["psql", "-f", "seed.sql"]
+#   env_passthrough: []            # extra host .env keys to copy into the VM's .env
+#   pr:
+#     enabled: false               # true -> the in-VM run pushes its branch and opens a
+#                                  # draft PR through the exe.dev GitHub integration
+#                                  # (must be WRITE-enabled in the exe.dev web UI)
+#     base: ""                     # "" = the repo's default branch
+#     draft: true
+#     labels: []
+#     reviewers: []                # requested when the PR is created; "Copilot" works
+#     signature: ""                # appended to pr-watch replies; "" = unsigned
+#     include_workshop: false      # true -> specs/ + app_docs/ markdown is committed and
+#                                  # rides in the PR; default keeps them out of git and
+#                                  # uses the app doc as the PR body instead
+#   web:                           # serve a web app off the VM's built-in HTTPS proxy
+#     enabled: false               # true -> a `web` dispatch phase wires https://<vm>.exe.xyz
+#     port: 0                      # internal port the app listens on (e.g. 3001);
+#                                  # 0 = leave the provider default (8000)
+#     public: false                # false -> gated behind exe.dev login (good for previews);
+#                                  # true -> open to anyone with the URL
+#                                  # (ad hoc: just sandbox-web <ticket|vm> 3001 --public)
+#
+#   # Preview environments. A `template` is a golden VM kept warm (repo cloned,
+#   # deps installed, app built, DB seeded); a per-ticket `preview` COPIES it
+#   # instead of cold-building, updates it to the base branch, and serves the
+#   # running app (via web: above) for review. Both are optional — leave preview
+#   # off and dispatch cold-builds a VM per ticket, as today.
+#   template:
+#     enabled: false               # true -> `just template-build` builds/refreshes the golden VM
+#     name: ""                     # the golden VM's name; "" = no template, cold-build per ticket
+#     branch: ""                   # base branch the template tracks; "" = repo default
+#     build_cmds:                  # build a servable app on the template (never starts the server).
+#                                  # Install only what you serve — a full monorepo install can fill
+#                                  # the VM disk. e.g.
+#       - "yarn install --immutable"
+#       - "yarn build"
+#     seed_cmd:                    # seed data so the served app has something to show, e.g.
+#       - "yarn db:seed"
+#     quiesce_cmds:                # run before EVERY copy — the copy snapshots the disk without
+#                                  # flushing it, so sync first (and CHECKPOINT postgres if present)
+#       - "sync"
+#       - "sudo -u postgres psql -c CHECKPOINT"
+#   preview:
+#     enabled: false               # true -> dispatch copies the template instead of cold-building
+#     from_template: ""            # copy source VM; "" = fall back to a cold new VM
+#     update_cmds:                 # on boot: update to the base branch, install if the lockfile
+#                                  # moved, rebuild what changed, migrate, e.g.
+#       - "git fetch origin"
+#       - "git reset --hard origin/main"
+#       - "yarn install --immutable"
+#       - "yarn build"
+#       - "yarn db:migrate"
+#     restart_cmd: ""              # restart the served app so it reflects the branch;
+#                                  # "" = the serve phase (re)starts it
 
 agents:
   - name: planner
@@ -70,8 +190,9 @@ agents:
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/builder/system.md
       user: adws/adw_data/prompt_engineering/builder/user.md
-    # No `writes` key: unrestricted, and the only agent that is. It still cannot
-    # touch defaults.protected_files — the builder does not get to edit its own grader.
+    # No `writes` key: unrestricted (the pruner is the only other agent that is,
+    # and only to tidy the builder's own diff). It still cannot touch
+    # defaults.protected_files — the builder does not get to edit its own grader.
     tools:                         # the only agent that mutates the repo — everything on
       - read
       - grep
@@ -100,6 +221,38 @@ agents:
 
   # No tester agent: running the suite is a known command, so it is a kind="code"
   # phase over adw_modules/quality.ts. See SKILL.md hard rule 8.
+
+  - name: triager
+    model: haiku                   # a verdict and questions — recon-priced, judgment-shaped
+    thinking: high
+    color: "#f97316"
+    purpose: Decide whether a ticket is implementable as written; if not, produce the questions.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/triager/system.md
+      user: adws/adw_data/prompt_engineering/triager/user.md
+    writes: []                     # read-only: its verdict goes to context_handoff/, not the repo
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
+
+  - name: comment_triager
+    color: "#38bdf8"                 # inherits defaults.model (sonnet)
+    purpose: Classify every unresolved PR review thread into fix, reply, or clarify; draft the replies.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/comment_triager/system.md
+      user: adws/adw_data/prompt_engineering/comment_triager/user.md
+    writes: []                     # read-only: classifications ride the envelope
+    tools:
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - write
 
   - name: reviewer
     # The one agent outside the Claude family, and deliberately so: a reviewer
@@ -148,6 +301,30 @@ agents:
       - bash
       - write
       - edit
+
+  - name: pruner
+    model: sonnet                  # deliberate pick: telling a redundant "// increment i" from a
+                                   # load-bearing why-comment or a machine directive (eslint-disable,
+                                   # ts-ignore) is code judgment — haiku too blunt, opus/fable overkill
+                                   # for a scoped cleanup pass
+    color: "#94a3b8"
+    purpose: Strip comments that only restate the code the builder just wrote; keep the why, and every machine directive.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/pruner/system.md
+      user: adws/adw_data/prompt_engineering/pruner/user.md
+    # No `writes` key: it edits whichever source files the builder touched, and
+    # comments live in every language and directory, so a path glob cannot scope
+    # it. It is held to comments-only by its prompt, the diff_matches_claims gate,
+    # and the test loop that runs right after it — and it still cannot touch
+    # protected_files.
+    tools:                         # edits comments in place; write only so its report lands
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - edit
+      - write
 
   # A THIRD opinion, on a provider neither subscription covers. The reviewer
   # above already breaks the Claude monoculture; reach for this when you want a

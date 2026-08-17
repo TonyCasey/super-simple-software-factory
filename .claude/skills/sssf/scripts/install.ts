@@ -6,7 +6,7 @@
  *     bun <skill>/scripts/install.ts [--force]
  *
  * Stamps: adws/ (modules + starter ADWs + package.json), adws/adw_data/prompt_engineering/
- * (5 starter agents), adws/adw_sssf_config/sssf.config.yaml, .env.sample,
+ * (6 starter agents), adws/adw_sssf_config/sssf.config.yaml, .env.sample,
  * .gitignore entries.
  * Existing files are skipped unless --force.
  */
@@ -26,6 +26,10 @@ const GITIGNORE_ENTRIES = [
   // `git add -A`, and without this the first such run would commit a whole
   // node_modules into the target repo.
   "adws/node_modules/",
+  // Sandbox-dispatch runtime: per-VM records and harvested bundles, plus the
+  // synced copies of remote trace dbs. State about runs, never repo content.
+  "adws/adw_data/sandbox/",
+  "adws/adw_data/remote/",
 ];
 
 // Never stamped: build/install output that belongs to whoever ran the install,

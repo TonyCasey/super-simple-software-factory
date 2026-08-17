@@ -87,3 +87,66 @@ procs ADW_ID:
 # boot the trace UI, http://localhost:4601 (api on :4600)
 obs:
     cd .claude/skills/sssf/apps/visualizer && bun install && (SSSF_DB={{justfile_directory()}}/{{db}} bun run server/index.ts &) && bunx vite
+
+# ── sandbox (per-ticket exe.dev VMs) ────────────────────────────────────────
+# The full SDLC inside a throwaway VM named after the ticket. VMs are
+# PERSISTENT AND BILL until sandbox-rm — nothing below ever destroys one
+# except sandbox-rm itself. Setup + walk-through: cookbooks/sandbox.md.
+
+# run the SDLC in a VM named after the ticket: just sandbox-sdlc ABC-123 "add /health"
+sandbox-sdlc TICKET *ARGS:
+    bun adws/adw_simple_sdlc.ts --config {{config}} --sandbox {{TICKET}} "$@"
+
+# every sandbox: record, box up/gone, remote run status
+sandbox-ls:
+    @bun adws/adw_modules/sandbox_dispatch.ts ls --config {{config}}
+
+# re-attach to a detached run: monitor -> harvest -> report
+sandbox-watch TICKET:
+    bun adws/adw_modules/sandbox_dispatch.ts watch {{TICKET}} --config {{config}}
+
+# pull the run's commits into refs/sandbox/ now — non-destructive, idempotent
+sandbox-harvest TICKET:
+    bun adws/adw_modules/sandbox_dispatch.ts harvest {{TICKET}} --config {{config}}
+
+# escape hatch: run a command inside the box's checkout: just sandbox-cmd <vm> 'git log --oneline -5'
+sandbox-cmd VM +CMD:
+    ssh -o BatchMode=yes {{VM}}.exe.xyz 'cd app && {{CMD}}'
+
+# point the VM's HTTPS proxy at an app port: just sandbox-web <ticket|vm> 3001 --public
+sandbox-web TICKET *ARGS:
+    bun adws/adw_modules/sandbox_dispatch.ts web {{TICKET}} {{ARGS}} --config {{config}}
+
+# follow the detached run's log: just sandbox-tail <vm>
+sandbox-tail VM:
+    ssh -o BatchMode=yes {{VM}}.exe.xyz 'tail -f sssf-run.log'
+
+# sync the VM's trace db home and open the visualizer on it
+sandbox-obs TICKET:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DB=$(bun adws/adw_modules/sandbox_dispatch.ts sync {{TICKET}} --config {{config}})
+    cd .claude/skills/sssf/apps/visualizer && bun install && (SSSF_DB="{{justfile_directory()}}/$DB" bun run server/index.ts &) && bunx vite
+
+# THE destructive one: destroys the VM and its disk. Harvest first.
+sandbox-rm VM:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -r -p "destroy {{VM}} AND its disk? Unharvested commits are gone forever. [y/N] " answer
+    if [ "$answer" = "y" ]; then
+        bun adws/adw_modules/sandbox_dispatch.ts rm {{VM}} --yes --config {{config}}
+    else
+        echo "aborted — nothing destroyed"
+    fi
+
+# ── ticket loop (ClickUp ticket -> reviewed PR, hands-free) ─────────────────
+# Setup: project: block + remote.pr.enabled in the config, ClickUp keys in
+# .env, and the repo's exe.dev GitHub integration WRITE-enabled.
+
+# ship a ticket end to end: just ship PLFM-123
+ship TICKET *ARGS:
+    bun adws/adw_ticket_ship.ts {{TICKET}} --config {{config}} "$@"
+
+# re-enter merged-detection for a shipped ticket (laptop was closed, etc.)
+ship-watch TICKET:
+    bun adws/adw_ticket_ship.ts {{TICKET}} --config {{config}} --watch-only

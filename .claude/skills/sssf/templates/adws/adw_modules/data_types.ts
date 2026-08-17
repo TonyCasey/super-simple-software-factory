@@ -397,6 +397,53 @@ export function AgentCall<S extends z.ZodObject<any>>(args: {
   };
 }
 
+// ── Tickets (project-tool integration) ───────────────────────────────────────
+
+/** One ticket, normalized across tools. `raw` keeps the tool's full payload. */
+export const TicketSchema = z.object({
+  tool: z.string(), // "clickup" (others later)
+  id: z.string(), // the tool's canonical id
+  custom_id: z.string().default(""), // human id, e.g. ABC-123
+  url: z.string().default(""),
+  title: z.string(),
+  description: z.string().default(""),
+  status: z.string().default(""),
+  list_id: z.string().default(""), // statuses are LIST-level in ClickUp (measured)
+  comments: z.array(z.object({ author: z.string(), text: z.string() })).default([]),
+  // Files on the ticket. The VM has no ticket-tool key, so the HOST downloads
+  // these and hands them into the sandbox (~/ticket_attachments/).
+  attachments: z.array(z.object({ title: z.string(), url: z.string() })).default([]),
+});
+export type Ticket = z.infer<typeof TicketSchema>;
+
+/** Triage verdict: implementable as written, or a list of questions. */
+export const ClarityOutput = outputType(
+  "ClarityOutput",
+  EnvelopeBaseSchema.extend({
+    clear: z.boolean().default(false),
+    classification: z.enum(["bug", "feature", "chore"]).default("feature"),
+    questions: z.array(z.string()).default([]), // non-empty iff !clear
+  }),
+);
+export type ClarityOutput = z.infer<typeof ClarityOutput.schema>;
+
+/** PR-review comment triage: what to do with each unresolved thread. */
+export const CommentTriageItemSchema = z.object({
+  thread_id: z.string(), // GraphQL node id — resolveReviewThread takes this
+  comment_id: z.number().default(0), // REST databaseId — replies take this
+  kind: z.enum(["fix", "reply", "clarify"]),
+  reply: z.string().default(""), // posted verbatim as the inline reply
+  fix_instruction: z.string().default(""), // precise brief for the builder, when kind=fix
+});
+
+export const CommentTriageOutput = outputType(
+  "CommentTriageOutput",
+  EnvelopeBaseSchema.extend({
+    items: z.array(CommentTriageItemSchema).default([]),
+  }),
+);
+export type CommentTriageOutput = z.infer<typeof CommentTriageOutput.schema>;
+
 // ── Config ───────────────────────────────────────────────────────────────────
 
 export const PromptEngineeringSchema = z.object({
@@ -438,7 +485,7 @@ export const ConfigDefaultsSchema = z.object({
   // the machinery that decides whether its work passed.
   protected_files: z
     .array(z.string())
-    .default(["adws/adw_modules/", "adws/adw_sssf_config/", "adws/adw_*.ts"]),
+    .default(["adws/adw_modules/", "adws/adw_sssf_config/", "adws/adw_*.ts", "adws/sandbox/"]),
   data_dir: z.string().default("adws/adw_data"),
 });
 export type ConfigDefaults = z.infer<typeof ConfigDefaultsSchema>;
@@ -448,9 +495,132 @@ export const ObservabilityConfigSchema = z.object({
   poll_ms: z.number().int().default(500),
 });
 
+// Sandbox dispatch (`--sandbox <ticket>`): one exe.dev VM per ticket, the whole
+// SDLC runs inside it. Consumed by adw_modules/sandbox_dispatch.ts; every field
+// has a working default so an unconfigured repo can still dispatch.
+export const RemotePostgresSchema = z.object({
+  enabled: z.boolean().default(false),
+  version: z.number().int().default(16),
+  db: z.string().default("app"),
+  user: z.string().default("app"),
+  password: z.string().default("app"), // VM-local database; not a secret worth a vault
+  seed_cmd: z.array(z.string()).default([]), // run in the clone root with DATABASE_URL set
+});
+
+// Ticket-tool wiring (adw_ticket_ship). `tool: none` disables the whole
+// surface; nothing else here is read then. Status VALUES are per-repo: the
+// generic ladder maps to whatever names the ticket's LIST actually uses
+// (measured: ClickUp statuses are list-level). The driver fetches the real
+// names at runtime and matches case-insensitively; a missing mapped status
+// degrades to a ticket comment instead of a transition.
+export const ProjectStatusesSchema = z.object({
+  todo: z.string().default("to do"),
+  in_progress: z.string().default("in progress"),
+  in_review: z.string().default("in review"),
+  done: z.string().default("complete"),
+  needs_info: z.string().default(""), // "" = no such status; comment-only
+});
+
+export const ProjectConfigSchema = z.object({
+  tool: z.enum(["none", "clickup"]).default("none"),
+  // The ClickUp workspace (team) id — custom task ids (ABC-123) cannot
+  // resolve without it. A setting, not a secret: it lives HERE, not in .env.
+  team_id: z.string().default(""),
+  statuses: ProjectStatusesSchema.prefault({}),
+  // Mirror run progress into ONE evolving ticket comment (created once,
+  // edited in place — visibility without notification spam).
+  progress_comments: z.boolean().default(true),
+});
+export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
+
+// PR creation from inside the VM (adw_sdlc_pr), via the exe.dev GitHub
+// integration — tokenless, requires the repo's integration to be write-enabled.
+export const RemotePrSchema = z.object({
+  enabled: z.boolean().default(false),
+  base: z.string().default(""), // "" = the repo's default branch
+  draft: z.boolean().default(true),
+  labels: z.array(z.string()).default([]),
+  reviewers: z.array(z.string()).default([]), // requested on creation
+  signature: z.string().default(""), // appended to watcher replies; "" = unsigned
+  // true -> the run's specs/ and app_docs/ markdown is committed and rides in
+  // the PR. Default: excluded from git; the doc becomes the PR body instead.
+  include_workshop: z.boolean().default(false),
+});
+
+// Serve a long-running web app off the VM. exe.dev fronts every box with a TLS
+// reverse proxy at https_url that forwards to ONE internal port (provider
+// default 8000). `port` remaps it to wherever the app listens; `public` opens
+// it to the world versus gating it behind exe.dev login (the default). The
+// mapping is a control-plane setting that persists on the box — orthogonal to
+// whether any ADW is still running.
+export const RemoteWebSchema = z.object({
+  enabled: z.boolean().default(false),
+  port: z.number().int().default(0), // internal app port; 0 = leave the provider default (8000)
+  public: z.boolean().default(false), // true -> anyone with the URL; false -> authenticated exe.dev users only
+});
+
+// A golden "template" VM kept warm (repo cloned, deps installed, app built, DB
+// seeded) so per-ticket previews copy it instead of cold-building. build_cmds
+// and seed_cmd are the repo-specific build/seed the template recipe runs, like
+// setup_cmds/postgres.seed_cmd do for a cold VM. quiesce_cmds run before every
+// copy so the disk snapshot is flushed and consistent.
+export const RemoteTemplateSchema = z.object({
+  enabled: z.boolean().default(false),
+  name: z.string().default(""), // golden VM name; "" = cold-build per ticket
+  branch: z.string().default(""), // base branch the template tracks; "" = repo default
+  build_cmds: z.array(z.string()).default([]), // build a servable app on the template
+  seed_cmd: z.array(z.string()).default([]), // seed data so the served app has something to show
+  quiesce_cmds: z.array(z.string()).default(["sync"]), // run before every copy to flush the disk
+});
+
+// A per-ticket preview copies the template, updates it to the base branch, and
+// serves the running app (remote.web) for review. With from_template empty it
+// falls back to a cold VM.
+export const RemotePreviewSchema = z.object({
+  enabled: z.boolean().default(false),
+  from_template: z.string().default(""), // copy source VM; "" = cold new VM
+  update_cmds: z.array(z.string()).default([]), // on boot: update to the base branch, install, build, migrate
+  restart_cmd: z.string().default(""), // restart the served app so it reflects the branch
+});
+
+export const RemoteConfigSchema = z.object({
+  vm_prefix: z.string().default(""), // VM name prefix; "" = repo directory name
+  tag: z.string().default(""), // required with a tag-scoped exe.dev SSH key
+  cpu: z.number().int().default(0), // 0/""/"" = provider defaults
+  memory: z.string().default(""),
+  disk: z.string().default(""),
+  repo: z.string().default(""), // owner/name; "" = derived from `git remote get-url origin`
+  // integration -> clone via github.int.exe.xyz (no token on the VM);
+  // token -> clone github.com with GH_TOKEN from the host .env
+  clone_via: z.enum(["integration", "token"]).default("integration"),
+  // subscription -> ship CLAUDE_CODE_OAUTH_TOKEN, bill the Claude plan (default);
+  // gateway -> keyless llm.int.exe.xyz, bills the exe.dev token allocation
+  claude_auth: z.enum(["subscription", "gateway"]).default("subscription"),
+  // gateway -> keyless llm.int.exe.xyz provider in ~/.codex/config.toml (default);
+  // auth_file -> copy ~/.codex/auth.json. DANGEROUS: OpenAI rotates refresh
+  // tokens, so a shared auth.json corrupts whichever side refreshes second —
+  // measured breaking BOTH the VM run and the host login on 2026-08-13.
+  codex_auth: z.enum(["gateway", "auth_file"]).default("gateway"),
+  sync_interval_s: z.number().int().default(30), // monitor poll cadence
+  adws_dirs: z.array(z.string()).default(["adws", "justfile"]), // copied in when the clone has no factory
+  // Repo-specific toolchain, run IN THE CLONE after the factory phase and
+  // before db_seed (node, yarn install, redis, ...). Each command must be
+  // idempotent — VM reuse re-runs the list.
+  setup_cmds: z.array(z.string()).default([]),
+  postgres: RemotePostgresSchema.prefault({}),
+  pr: RemotePrSchema.prefault({}),
+  web: RemoteWebSchema.prefault({}), // expose a web app through the VM's HTTPS proxy
+  template: RemoteTemplateSchema.prefault({}), // golden warm VM, cp'd per ticket
+  preview: RemotePreviewSchema.prefault({}), // per-ticket preview: cp template -> update -> serve
+  env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM
+});
+export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;
+
 export const SSSFConfigSchema = z.object({
   defaults: ConfigDefaultsSchema.prefault({}),
   observability: ObservabilityConfigSchema.prefault({}),
+  remote: RemoteConfigSchema.prefault({}),
+  project: ProjectConfigSchema.prefault({}),
   agents: z.array(AgentConfigSchema).default([]),
 });
 export type SSSFConfig = z.infer<typeof SSSFConfigSchema>;

@@ -94,6 +94,7 @@ Green on the smoke test means the whole path works: config validated, session mi
 | builder | `claude_code` | `sonnet` (inherited from `defaults.model`) | medium |
 | reviewer | `codex` | `gpt-5.5` | high |
 | documenter | `claude_code` | `sonnet` | medium |
+| pruner | `claude_code` | `sonnet` | medium |
 | scout | `claude_code` | `haiku` | medium |
 
 The reviewer is deliberately the odd one out: a reviewer drawn from the same family as the builder shares its blind spots, so it runs on your ChatGPT plan instead.
@@ -101,6 +102,8 @@ The reviewer is deliberately the odd one out: a reviewer drawn from the same fam
 Do **not** set `ANTHROPIC_API_KEY` if you want subscription billing. Claude Code prefers an API key over the subscription, so `agent_cc.ts` strips it (and the Bedrock/Vertex switches) from the child environment — `SSSF_CC_USE_API_KEY=1` opts out. (Codex needs no such scrub: an `OPENAI_API_KEY` does not displace a ChatGPT login.) **Subscription agents report `cost: $0.00`** — nothing was metered per token, so the dollar column stays honest and tokens carry the usage signal.
 
 **Keys come back the moment you add a `coding_agent: pi` agent.** Its `model:` is written `provider/model-id`, and the provider half decides the key (which key pi reads for a provider comes from `~/.pi/agent/models.json`). One sharp edge: `agents.validate()` checks that a pi model resolves in the catalog, not that its provider is reachable or its key is set. A missing key does not fail at startup — it fails when that agent runs, partway into a chain.
+
+The sandbox and ticket loop add up to three more entries (`CLAUDE_CODE_OAUTH_TOKEN`, `CLICKUP_API_KEY`, and `GH_TOKEN` in one fallback case) — see [What goes in `.env`](#what-goes-in-env-and-what-does-not) below.
 
 
 ---
@@ -130,7 +133,7 @@ Everything lives in `.claude/skills/sssf/`. `SKILL.md` carries the hard rules an
 | What lands in your repo | Where it comes from | Tracked |
 |---|---|---|
 | `adws/adw_sssf_config/sssf.config.yaml` | `templates/sssf.config.yaml` | yes, it is your agent roster |
-| `adws/adw_*.ts` | `templates/adws/` | yes, twelve starter workflows |
+| `adws/adw_*.ts` | `templates/adws/` | yes, fifteen starter workflows |
 | `adws/adw_modules/` | `templates/adws/adw_modules/` | yes, all low-level logic |
 | `adws/adw_data/prompt_engineering/` | `templates/prompt_engineering/` | yes, **your prompts live here** |
 | `adws/adw_data/harness_engineering/` | `templates/harness_engineering/` | yes, pi extensions |
@@ -172,7 +175,7 @@ agents:
       - specs/
 ```
 
-Five starter agents ship in the box: `planner`, `builder`, `scout` (read-only recon), `reviewer`, and `documenter`. There is no tester, because running a suite is a known command and therefore code.
+Six starter agents ship in the box: `planner`, `builder`, `scout` (read-only recon), `reviewer`, `documenter`, and `pruner` (strips comments that only restate the code). There is no tester, because running a suite is a known command and therefore code.
 
 Every agent gets its own model, thinking level, prompts, tools, and harness. That is the core four, and it is the whole surface you tune. Give the planner a frontier model and the builder a cheap fast one. Give the scout subagents. Give the reviewer no ability to write code at all.
 
@@ -306,7 +309,7 @@ super-simple-software-factory/          # the deployable factory, and nothing el
         ├── harness_engineering/        # pi extensions
         └── adws/
             ├── package.json            # the one dependency: zod
-            ├── adw_*.ts                # the twelve starter workflows
+            ├── adw_*.ts                # the fifteen starter workflows
             └── adw_modules/            # ALL low-level logic, ADW scripts stay thin
 ```
 
@@ -314,7 +317,7 @@ The skill is also what an agent reads to *operate* the factory. `SKILL.md` is th
 
 ---
 
-## The twelve starter workflows
+## The fifteen starter workflows
 
 Every ADW takes the same shape:
 
@@ -336,6 +339,9 @@ bun adws/adw_*.ts "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config
 | `adw_plan_build_test_quality` | same, plus lint/typecheck/build gates | the repo has quality commands worth enforcing |
 | `adw_document` | code(git diff), documenter | write up what just shipped |
 | `adw_simple_sdlc` | plan, build, test, review, document | the work is real and its shape is not obvious |
+| `adw_ticket_ship` | triage, sandbox dispatch, PR readback, watch, finalize | a ClickUp ticket in, a reviewed PR out — the whole loop below |
+| `adw_sdlc_pr` | the simple-SDLC chain, then push + draft PR | runs INSIDE the sandbox VM; a dispatch launches it, you rarely do |
+| `adw_pr_watch` | poll, classify, fix, push, reply, resolve | the in-VM daemon that serves review feedback until the humans decide |
 
 `adw_simple_sdlc` lands three commits from three authors. The plan, the code, and the write-up each get their own, and each message is the words of the agent that produced it.
 
@@ -358,6 +364,86 @@ Reads never block a running workflow, the db is WAL. `install.ts` stamps a `just
 
 ---
 
+## The sandbox and the ticket loop
+
+The last three workflows in that table are one feature seen from three sides: **a ClickUp ticket in, a reviewed PR out, and nothing running on your machine.** `just ship PLFM-123` fetches the ticket, triages it host-side (an unclear ticket costs one cheap agent call and a comment with questions, never a VM), then boots a per-ticket [exe.dev](https://exe.dev) VM, provisions it, clones the repo, seeds a database, and runs the whole SDLC inside. The PR is created *from* the VM through exe.dev's GitHub integration — no token ever lands on the box. A watcher daemon stays behind to serve review feedback (inline threads *and* conversation-tab comments): classify, fix, test, push, reply, resolve. When a human merges, the ticket moves to done, the commits are harvested home into `refs/sandbox/`, and the VM is destroyed — the merge is the sign-off, and it is the system's one automatic teardown. Full walk-through: `cookbooks/sandbox.md`.
+
+Two config blocks drive it, both in `sssf.config.yaml`, both fully commented in the stamped file. The `project:` block is the ticket tool:
+
+```yaml
+project:
+  tool: clickup                    # none (default) disables the ticket loop
+  team_id: "90121693723"           # the workspace id — a setting, not a secret
+  statuses:                        # map the generic ladder onto YOUR list's real names
+    todo: backlog                  # statuses are LIST-level in ClickUp; the driver
+    in_progress: in development    # fetches the real names at runtime and degrades
+    in_review: in review           # to a ticket comment when one is missing
+    done: shipped
+    needs_info: ""                 # "" = no such status on the board; comment-only
+  progress_comments: true          # mirror run progress into ONE evolving ticket
+                                   # comment, edited in place — no notification spam
+```
+
+The `remote:` block is the sandbox:
+
+```yaml
+remote:
+  vm_prefix: ""                    # ticket ABC-123 -> VM <prefix>-abc-123
+  tag: my-exe-tag                  # REQUIRED with a tag-scoped exe.dev SSH key; the
+                                   # repo's GitHub integration must be attached to
+                                   # this TAG (one VM is not enough — every ticket
+                                   # gets a fresh box)
+  clone_via: integration           # integration -> tokenless clone/push via
+                                   # github.int.exe.xyz; token -> github.com + GH_TOKEN
+  claude_auth: subscription        # ship CLAUDE_CODE_OAUTH_TOKEN, bill your Claude plan
+  codex_auth: gateway              # keyless exe.dev LLM gateway; never copy auth.json
+  setup_cmds:                      # repo toolchain, run in the clone before the seed;
+    - "sudo corepack enable"       # each command MUST be idempotent (VM reuse re-runs)
+    - "yarn install --immutable"
+  postgres:
+    enabled: true                  # apt install, role + db, DATABASE_URL exported
+    version: 16
+    db: app
+    user: app
+    password: app                  # VM-local; rotate nothing, it dies with the VM
+    seed_cmd: ["bun", "run", "db:seed"]
+  pr:
+    enabled: true                  # push the run branch + open a draft PR from the VM
+                                   # (requires clone_via: integration, WRITE-enabled)
+    base: ""                       # "" = the repo's default branch
+    draft: true
+    labels: []
+    reviewers: ["Copilot"]         # requested on creation; the watcher re-requests a
+                                   # reviewer after fixing their findings
+    signature: ""                  # appended to watcher replies; "" = unsigned. The
+                                   # integration acts AS YOU, so unsigned replies are
+                                   # indistinguishable from comments you typed
+    include_workshop: false        # keep specs/ + app_docs/ OUT of the PR; the app doc
+                                   # becomes the PR body instead (🤖 footer marks it)
+  web:
+    enabled: false                 # point https://<vm>.exe.xyz at your app's port
+    port: 0                        # 0 = provider default (8000)
+    public: false                  # false = gated behind exe.dev login — good previews
+```
+
+Sizing (`cpu`, `memory`, `disk`), `repo` (when origin is not the repo to clone), `sync_interval_s`, `adws_dirs`, and `env_passthrough` round out the block — the stamped comments cover them. A repo whose factory is not committed still works: the dispatch copies `adws/` + `justfile` in and excludes them from git, so they never leak into the PR.
+
+### What goes in `.env` (and what does not)
+
+One rule decides it: **if it is safe to commit, it is `sssf.config.yaml`; `.env` is only for secrets.**
+
+| Key | Needed when | What it is |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `claude_auth: subscription` (the default) | `claude setup-token` output — the credential shipped to the VM so in-VM agents bill your Claude plan. Revocable; treat it that way |
+| `CLICKUP_API_KEY` | `project.tool: clickup` | your personal token — the **only** ClickUp secret. The workspace id is config (`project.team_id`), not a secret |
+| `GH_TOKEN` | `clone_via: token` only | a fine-grained PAT scoped to ONE repo, Contents: Read. The default `clone_via: integration` needs no token at all |
+
+Everything else stays out on purpose. Codex needs no key (`codex_auth: gateway` runs it keylessly against exe.dev's LLM gateway) — and never copy `~/.codex/auth.json` to a VM: OpenAI rotates refresh tokens, and the shared file corrupts whichever side refreshes second, including your local login. Secrets travel to the VM over the ssh pipe, never argv, never the trace; the ClickUp key never travels at all — every board mutation is host-side.
+
+The stamped `justfile` wraps the loop: `just ship PLFM-123` end to end, `just ship-watch PLFM-123` to re-enter the merge watch after a laptop nap, and the `sandbox-*` family (`sandbox-sdlc`, `sandbox-ls`, `sandbox-watch`, `sandbox-harvest`, `sandbox-web`, `sandbox-rm`) for driving VMs directly. Two facts to hold on to: **exe.dev VMs bill until removed**, and outside the merge-triggered finalize nothing here destroys one — teardown is your explicit call.
+
+---
+
 ## Where it can still fail
 
 Honest edges, because knowing them is cheaper than discovering them.
@@ -375,7 +461,7 @@ Honest edges, because knowing them is cheaper than discovering them.
 | `install.ts --force` | Overwrites **all** stamped files, config and prompts included | Commit before you force |
 | Subscription agents report `$0.00` | `cost` means money actually billed, and a subscription meters nothing per token | Expected. Read tokens, not dollars — `SSSF_CC_USE_API_KEY=1` reports real API spend |
 
-Also missing on purpose, so you know what to add: this runs on your current branch. For real work you want a branch per run, a sandbox around the agent, and a merge step at the end.
+The plain workflows run on your current branch — for real work, that is what the sandbox and ticket loop are for: a branch per run, a VM around the agents, a PR as the merge step, and the human merge as the sign-off.
 
 **Is this overkill for a one-off feature?** Yes. Prompt an agent and move on. This earns its keep when the same workflow runs a hundred times, when validation is the only thing standing between you and a bad merge, and when you need the thousandth run to look like the first.
 
@@ -398,7 +484,7 @@ Where to start, roughly in the order that pays off fastest:
 | Your definition of done | `adws/adw_modules/gates.ts` | A gate is one function. Whatever "done" means where you work, write it here |
 | Your agent capabilities | `adws/adw_data/harness_engineering/` | Pi extensions, a different set per agent if that is what the job needs |
 
-And what it deliberately does not do. It runs on your current branch. There is no sandbox, no branch per run, no merge step, no cloud, and no human-in-the-loop approval phase. Those are the obvious next things to build. They are left out so the core stays small enough to read in one sitting, which is the only reason you would trust it enough to change it.
+The core deliberately stays small: the plain workflows run on your current branch with no approval phase, so the whole control plane reads in one sitting — which is the only reason you would trust it enough to change it. When the work is real, the sandbox and ticket loop add the missing rigor as opt-in config, not core complexity: a branch per run, a VM around the agents, a draft PR as the merge step, and a human merge as the only approval that counts.
 
 So take it. Fork it, strip the parts you do not need, rename the agents, throw out half the workflows, and roll what is left into the factory your product actually needs. The specific chains in here matter far less than the shape: code owns the loop, agents own the phases, and every run leaves a trace you can go read.
 

@@ -4,9 +4,16 @@
  *
  * Usage:
  *     bun adws/adw_simple_sdlc.ts "<prompt or path/to/prompt.md>" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]
+ *     bun adws/adw_simple_sdlc.ts "<prompt>" --sandbox ABC-123 [--fresh] [--detach]
+ *
+ * `--sandbox <ticket>` runs this exact chain inside a per-ticket exe.dev VM
+ * instead of on this machine: the harness boots the VM, provisions it (incl.
+ * postgres when configured), clones the repo, copies in the factory, launches
+ * this same script detached in there, and pulls the commits home into
+ * refs/sandbox/. See adw_modules/sandbox_dispatch.ts and cookbooks/sandbox.md.
  *
  * Phases: engineer(request) -> planner -> git(commit_plan)
- *         -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded]
+ *         -> builder -> [pruner, only if on the roster] -> code(test) [-> builder(fix) -> code(test) ... bounded]
  *         -> reviewer [-> builder(revise) -> reviewer ... bounded]
  *         -> code(retest, only if a revision changed code)
  *         -> git(commit_build) -> code(changes) -> documenter -> git(commit_docs)
@@ -60,10 +67,11 @@ import * as gates from "./adw_modules/gates.ts";
 import * as git_helper from "./adw_modules/git_helper.ts";
 import * as quality from "./adw_modules/quality.ts";
 import type { PhaseHandle } from "./adw_modules/runner.ts";
+import * as sandbox_dispatch from "./adw_modules/sandbox_dispatch.ts";
 import * as session from "./adw_modules/session.ts";
 import * as utils from "./adw_modules/utils.ts";
 
-const REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"];
+export const REQUIRED_AGENTS = ["planner", "builder", "reviewer", "documenter"];
 const MAX_FIX_LOOPS = 3;
 const MAX_REVISION_LOOPS = 2;
 
@@ -80,12 +88,28 @@ export async function main(
   const cfg = agents.load_config(config);
   agents.validate(cfg, REQUIRED_AGENTS);
   const run = session.ensure(cfg, adw_id);
+  const result = await chain(run, prompt);
+  return run.finish(result.verified, result.reason);
+}
+
+/**
+ * The SDLC phase chain, runnable inside any existing session — this is how
+ * adw_sdlc_pr reuses the exact same plan/build/test/review/document sequence
+ * and appends its push/PR phases after it, with zero duplicated logic.
+ */
+export async function chain(
+  run: import("./adw_modules/runner.ts").Run,
+  prompt: string,
+): Promise<{ verified: boolean; reason: string }> {
   const baseline = git_helper.rev("HEAD"); // pinned before this run commits anything
 
   /** Commit what the preceding phase produced, in that agent's own words. */
   const commit = (ph: PhaseHandle, envelope: { commit_message: string; summary: string }): void => {
     const message = envelope.commit_message || `sssf(${run.adw_id}): ${envelope.summary}`;
-    ph.log({ sha: git_helper.commit_all(message), message });
+    const sha = git_helper.commit_all_if_changed(message);
+    // "" is legitimate: the PR flavor keeps specs/ and app_docs/ out of git,
+    // so the plan and docs commits may have nothing to record.
+    ph.log(sha ? { sha, message } : { commit: "(nothing tracked to commit)" });
   };
 
   /** Log a deterministic block's verdict — the same shape every ADW uses. */
@@ -152,6 +176,33 @@ export async function main(
         }),
       ),
   );
+
+  // Once the builder has produced the code, tidy the comments it left before
+  // anything downstream runs — the test loop below covers the pruned tree (a
+  // wrongly-stripped directive comment is caught and repaired like any other
+  // build error), the reviewer sees the final code, and no PR ever carries the
+  // restating comments. Optional: skipped when no `pruner` is on the roster.
+  if (run.cfg.agents.some((a) => a.name === "pruner")) {
+    await run.phase(
+      PhaseParams({
+        name: "prune",
+        kind: "agent",
+        owner: "pruner",
+        retries: 1,
+        description:
+          "Strip comments that only restate the code the builder just wrote; keep the why and every machine directive",
+      }),
+      (ph) =>
+        ph.call(
+          AgentCall({
+            output_type: BuildOutput,
+            prompt,
+            previous: build, // the builder's envelope names the files to scope to
+            gates: [gates.diff_matches_claims],
+          }),
+        ),
+    );
+  }
 
   let test: QualityResult | null = null;
   for (let i = 1; i <= MAX_FIX_LOOPS; i++) {
@@ -325,7 +376,7 @@ export async function main(
     );
   }
 
-  return run.finish(verified, "the suite or the review never came back clean");
+  return { verified, reason: "the suite or the review never came back clean" };
 }
 
 if (import.meta.main) {
@@ -334,10 +385,26 @@ if (import.meta.main) {
     options: {
       config: { type: "string", default: "adws/adw_sssf_config/sssf.config.yaml" },
       "adw-id": { type: "string" },
+      sandbox: { type: "string" }, // ticket id — run the whole chain in a per-ticket exe.dev VM
+      fresh: { type: "boolean", default: false }, // force a new VM instead of reusing the ticket's
+      detach: { type: "boolean", default: false }, // launch and return; watch later with sandbox-watch
     },
     allowPositionals: true,
   });
-  await session.cli(() =>
-    main(utils.require_prompt(positionals, "\"<prompt or path/to/prompt.md>\" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4]"), values.config, values["adw-id"]),
-  );
+  await session.cli(() => {
+    const prompt = utils.require_prompt(
+      positionals,
+      "\"<prompt or path/to/prompt.md>\" [--config adws/adw_sssf_config/sssf.config.yaml] [--adw-id a1b2c3d4] [--sandbox ABC-123 [--fresh] [--detach]]",
+    );
+    return values.sandbox
+      ? sandbox_dispatch.dispatch({
+          ticket: values.sandbox!,
+          prompt,
+          adw: "simple_sdlc",
+          config_path: values.config,
+          fresh: values.fresh,
+          detach: values.detach,
+        })
+      : main(prompt, values.config, values["adw-id"]);
+  });
 }

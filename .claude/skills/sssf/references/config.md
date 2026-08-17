@@ -47,7 +47,7 @@ agents:
       - bash
 ```
 
-The starter roster `install.ts` stamps is subscription-billed across two CLIs — `fable` planner, `sonnet` builder and documenter and `haiku` scout on `claude_code`, plus a `gpt-5.5` reviewer on `codex` — so a fresh install needs `claude login` **and** `codex login`, and no API key at all. The `challenger` above ships commented out; uncomment it to add a third provider on pi.
+The starter roster `install.ts` stamps is subscription-billed across two CLIs — `fable` planner, `sonnet` builder, documenter and pruner, and `haiku` scout on `claude_code`, plus a `gpt-5.5` reviewer on `codex` — so a fresh install needs `claude login` **and** `codex login`, and no API key at all. The pruner strips comments that only restate the code from the builder's diff; the SDLC chain runs it only when it is on the roster. The `challenger` above ships commented out; uncomment it to add a third provider on pi.
 
 ## Fields
 
@@ -70,6 +70,26 @@ The starter roster `install.ts` stamps is subscription-billed across two CLIs �
 |---|---|---|
 | `db` | path | SQLite trace db. `tracer.ts` writes it directly; the visualizer polls it. Default `adws/adw_data/sssf.db`. |
 | `poll_ms` | int | Visualizer live-poll cadence in ms. History uses the same queries, lazy-paged. Default `500`. |
+
+### `remote`
+
+Sandbox dispatch — consumed only by `adw_modules/sandbox_dispatch.ts` when an ADW
+runs with `--sandbox <ticket>`. Every field has a working default; local runs never
+read this block. Operational walk-through: `cookbooks/sandbox.md`.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `vm_prefix` | string | VM name prefix; empty = the repo directory's name. Ticket `ABC-123` becomes VM `<prefix>-abc-123` and URL `https://<prefix>-abc-123.exe.xyz`. |
+| `tag` | string | exe.dev VM tag. **Required when the SSH key is tag-scoped** (the key can only create VMs carrying its tag); also what tag-attached integrations bind to. |
+| `cpu` / `memory` / `disk` | int / string / string | Passed to `ssh exe.dev new`; zero/empty = provider defaults. |
+| `repo` | string | `owner/name` to clone; empty = derived from `git remote get-url origin`. |
+| `clone_via` | `integration` \| `token` | `integration` clones `github.int.exe.xyz/<repo>` — no token on the VM, needs the repo's exe.dev GitHub integration (read-only is enough). `token` clones `github.com` using `GH_TOKEN` from the host `.env`. Default `integration`. |
+| `claude_auth` | `subscription` \| `gateway` | `subscription` ships `CLAUDE_CODE_OAUTH_TOKEN` (from `claude setup-token`) so in-VM runs bill the Claude plan, flat. `gateway` is keyless (`llm.int.exe.xyz`) but bills the exe.dev token allocation at API list rates. Default `subscription`. |
+| `codex_auth` | `gateway` \| `auth_file` | `gateway` writes a keyless `~/.codex/config.toml` provider on the VM pointing at `llm.int.exe.xyz` (exe.dev's documented Codex recipe; bills the exe.dev allocation, or a connected ChatGPT provider source). `auth_file` copies `~/.codex/auth.json` — **avoid**: OpenAI rotates refresh tokens, so the shared file corrupts whichever side refreshes second, including the host login. Default `gateway`. |
+| `sync_interval_s` | int | Monitor poll + trace-sync cadence. Default `30`. |
+| `adws_dirs` | list[path] | What "copy in the factory" copies host → VM when the clone has no committed `adws/`. Default `[adws, justfile]`. |
+| `postgres` | object | `enabled` (default false), `version` (16), `db`/`user`/`password` (`app`), `seed_cmd` (list, run in the clone root with `DATABASE_URL` exported). |
+| `env_passthrough` | list[string] | Extra host `.env` keys copied verbatim into the VM's `.env`. |
 
 ### `agents[]`
 

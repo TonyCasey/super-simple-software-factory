@@ -67,16 +67,20 @@ export function json_parses(envelope: EnvelopeBase, _run: any): GateReport {
   return report;
 }
 
-/** Every file claimed changed must exist on disk. */
+/** Every file claimed changed must exist on disk — or be a deletion git saw. */
 export function diff_matches_claims(envelope: EnvelopeBase, _run: any): GateReport {
   const report = new GateReport();
   for (const f of (envelope as any).changed_files ?? []) {
     const info = _stat(f);
-    report.check(
-      f,
-      info !== null,
-      info ? `exists, ${_size(info.size)}` : "claimed changed file does not exist",
-    );
+    if (info !== null) {
+      report.check(f, true, `exists, ${_size(info.size)}`);
+      continue;
+    }
+    // Removing a file IS a change (measured live: review said "delete this",
+    // the builder obliged, the old gate called that a lie).
+    const status = Bun.spawnSync(["git", "status", "--porcelain", "--", f]).stdout.toString().trim();
+    const deleted = /^.?D/.test(status);
+    report.check(f, deleted, deleted ? "deleted — change recorded by git" : "claimed changed file does not exist");
   }
   return report;
 }
@@ -141,4 +145,59 @@ export function tests_pass(command: string): Gate {
   // command it was — an anonymous closure would log every suite as the same gate.
   Object.defineProperty(gate, "name", { value: `tests_pass(${command})` });
   return gate;
+}
+
+// ── ticket-loop gates ────────────────────────────────────────────────────────
+
+/**
+ * A triage verdict must be internally consistent: unclear demands questions,
+ * clear forbids them. An agent that says "unclear" with nothing to ask has
+ * produced a verdict nobody can act on.
+ */
+export function clarity_consistent(envelope: EnvelopeBase, _run: any): GateReport {
+  const report = new GateReport();
+  const e = envelope as EnvelopeBase & { clear?: boolean; questions?: string[] };
+  const questions = e.questions ?? [];
+  if (e.clear === false) {
+    report.check(
+      "questions_present",
+      questions.length > 0,
+      questions.length ? `${questions.length} question(s) to post` : "clear=false but no questions — nothing to ask the ticket",
+    );
+  } else {
+    report.check(
+      "no_dangling_questions",
+      questions.length === 0,
+      questions.length ? "clear=true yet questions remain — pick one" : "clear verdict, no questions",
+    );
+  }
+  return report;
+}
+
+/**
+ * Factory: every unresolved review thread classified exactly once. A thread
+ * the triage skipped is review feedback silently dropped; one classified twice
+ * would be answered twice.
+ */
+export function triage_covers(thread_ids: string[]): Gate {
+  return function triage_covers(envelope: EnvelopeBase, _run: any): GateReport {
+    const report = new GateReport();
+    const items = ((envelope as any).items ?? []) as { thread_id: string }[];
+    const seen = new Map<string, number>();
+    for (const item of items) seen.set(item.thread_id, (seen.get(item.thread_id) ?? 0) + 1);
+    for (const id of thread_ids) {
+      const count = seen.get(id) ?? 0;
+      report.check(
+        id,
+        count === 1,
+        count === 0 ? "unresolved thread not classified" : count === 1 ? "classified once" : `classified ${count} times`,
+      );
+    }
+    for (const [id, count] of seen) {
+      if (!thread_ids.includes(id)) {
+        report.check(id, false, `classified a thread that is not unresolved (${count}x)`);
+      }
+    }
+    return report;
+  };
 }
