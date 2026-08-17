@@ -6,7 +6,7 @@
  *
  * Usage:
  *     bun adws/adw_sdlc_pr.ts "<prompt>" [--adw-id X] [--config ...]
- *         [--ticket PLFM-123] [--ticket-title "..."] [--ticket-url https://...]
+ *         [--ticket ABC-123] [--ticket-title "..."] [--ticket-url https://...]
  *
  * Phases: [adw_simple_sdlc's exact chain, imported — zero duplication]
  *         -> code(push) -> code(create_pr)
@@ -35,7 +35,7 @@ import * as utils from "./adw_modules/utils.ts";
 import { chain, REQUIRED_AGENTS } from "./adw_simple_sdlc.ts";
 
 export interface TicketContext {
-  ref: string; // PLFM-123; "" when running ticketless
+  ref: string; // ABC-123; "" when running ticketless
   title: string;
   url: string;
 }
@@ -159,7 +159,7 @@ if (import.meta.main) {
     main(
       utils.require_prompt(
         positionals,
-        '"<prompt or path/to/prompt.md>" [--adw-id X] [--ticket PLFM-123] [--ticket-title "..."] [--ticket-url URL]',
+        '"<prompt or path/to/prompt.md>" [--adw-id X] [--ticket ABC-123] [--ticket-title "..."] [--ticket-url URL]',
       ),
       values.config,
       values["adw-id"],

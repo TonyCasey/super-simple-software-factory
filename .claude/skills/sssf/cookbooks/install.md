@@ -21,7 +21,7 @@ Run from the **target repo root** — the cwd is where everything lands. If the 
 | `adws/adw_*.ts` | `templates/adws/` | yes — the twelve starter ADWs |
 | `adws/adw_modules/` | `templates/adws/adw_modules/` | yes — all low-level logic |
 | `adws/package.json`, `adws/tsconfig.json` | `templates/adws/` | yes — the one dependency (zod) and the TS config |
-| `adws/adw_data/prompt_engineering/{planner,builder,scout,reviewer,documenter}/` | `templates/prompt_engineering/` | yes — **the user-owned home for prompts** |
+| `adws/adw_data/prompt_engineering/{planner,builder,scout,reviewer,documenter,pruner}/` | `templates/prompt_engineering/` | yes — **the user-owned home for prompts** |
 | `adws/adw_data/harness_engineering/` | `templates/harness_engineering/` | yes — **the user-owned home for pi extensions** |
 | `justfile` | `templates/justfile` | yes — starter recipes: `just demo`, the workflows, the trace reads, `just obs` |
 | `adws/adw_data/sessions/`, `adws/adw_data/sssf.db` | created at runtime | no — gitignored |

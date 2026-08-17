@@ -94,6 +94,7 @@ Green on the smoke test means the whole path works: config validated, session mi
 | builder | `claude_code` | `sonnet` (inherited from `defaults.model`) | medium |
 | reviewer | `codex` | `gpt-5.5` | high |
 | documenter | `claude_code` | `sonnet` | medium |
+| pruner | `claude_code` | `sonnet` | medium |
 | scout | `claude_code` | `haiku` | medium |
 
 The reviewer is deliberately the odd one out: a reviewer drawn from the same family as the builder shares its blind spots, so it runs on your ChatGPT plan instead.
@@ -174,7 +175,7 @@ agents:
       - specs/
 ```
 
-Five starter agents ship in the box: `planner`, `builder`, `scout` (read-only recon), `reviewer`, and `documenter`. There is no tester, because running a suite is a known command and therefore code.
+Six starter agents ship in the box: `planner`, `builder`, `scout` (read-only recon), `reviewer`, `documenter`, and `pruner` (strips comments that only restate the code). There is no tester, because running a suite is a known command and therefore code.
 
 Every agent gets its own model, thinking level, prompts, tools, and harness. That is the core four, and it is the whole surface you tune. Give the planner a frontier model and the builder a cheap fast one. Give the scout subagents. Give the reviewer no ability to write code at all.
 

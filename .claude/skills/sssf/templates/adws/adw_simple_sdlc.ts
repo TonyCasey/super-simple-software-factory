@@ -13,7 +13,7 @@
  * refs/sandbox/. See adw_modules/sandbox_dispatch.ts and cookbooks/sandbox.md.
  *
  * Phases: engineer(request) -> planner -> git(commit_plan)
- *         -> builder -> code(test) [-> builder(fix) -> code(test) ... bounded]
+ *         -> builder -> [pruner, only if on the roster] -> code(test) [-> builder(fix) -> code(test) ... bounded]
  *         -> reviewer [-> builder(revise) -> reviewer ... bounded]
  *         -> code(retest, only if a revision changed code)
  *         -> git(commit_build) -> code(changes) -> documenter -> git(commit_docs)
@@ -176,6 +176,33 @@ export async function chain(
         }),
       ),
   );
+
+  // Once the builder has produced the code, tidy the comments it left before
+  // anything downstream runs — the test loop below covers the pruned tree (a
+  // wrongly-stripped directive comment is caught and repaired like any other
+  // build error), the reviewer sees the final code, and no PR ever carries the
+  // restating comments. Optional: skipped when no `pruner` is on the roster.
+  if (run.cfg.agents.some((a) => a.name === "pruner")) {
+    await run.phase(
+      PhaseParams({
+        name: "prune",
+        kind: "agent",
+        owner: "pruner",
+        retries: 1,
+        description:
+          "Strip comments that only restate the code the builder just wrote; keep the why and every machine directive",
+      }),
+      (ph) =>
+        ph.call(
+          AgentCall({
+            output_type: BuildOutput,
+            prompt,
+            previous: build, // the builder's envelope names the files to scope to
+            gates: [gates.diff_matches_claims],
+          }),
+        ),
+    );
+  }
 
   let test: QualityResult | null = null;
   for (let i = 1; i <= MAX_FIX_LOOPS; i++) {

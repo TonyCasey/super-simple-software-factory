@@ -4,7 +4,7 @@
  *
  * Facts this module is built on (measured 2026-08-13, recorded in
  * plans/sandbox-ticket-loop.md):
- *   - Custom task ids (PLFM-123) resolve ONLY with
+ *   - Custom task ids (ABC-123) resolve ONLY with
  *     `?custom_task_ids=true&team_id=<id>` on every task call.
  *   - Status ladders are LIST-level, not space-level — the real names must be
  *     fetched from the ticket's list at runtime, never assumed from config.
@@ -66,7 +66,7 @@ async function _api(path: string, init: RequestInit = {}): Promise<any> {
 
 /**
  * The task-call query string. With `custom_task_ids=true` ClickUp interprets
- * the id AS a custom id — so it must be sent only for PLFM-123-shaped refs;
+ * the id AS a custom id — so it must be sent only for ABC-123-shaped refs;
  * a raw task id (869ehvc2h) resolves only WITHOUT it.
  */
 function _query(cfg: SSSFConfig, id: string): string {

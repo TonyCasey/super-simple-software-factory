@@ -403,7 +403,7 @@ export function AgentCall<S extends z.ZodObject<any>>(args: {
 export const TicketSchema = z.object({
   tool: z.string(), // "clickup" (others later)
   id: z.string(), // the tool's canonical id
-  custom_id: z.string().default(""), // human id, e.g. PLFM-123
+  custom_id: z.string().default(""), // human id, e.g. ABC-123
   url: z.string().default(""),
   title: z.string(),
   description: z.string().default(""),
@@ -523,7 +523,7 @@ export const ProjectStatusesSchema = z.object({
 
 export const ProjectConfigSchema = z.object({
   tool: z.enum(["none", "clickup"]).default("none"),
-  // The ClickUp workspace (team) id — custom task ids (PLFM-123) cannot
+  // The ClickUp workspace (team) id — custom task ids (ABC-123) cannot
   // resolve without it. A setting, not a secret: it lives HERE, not in .env.
   team_id: z.string().default(""),
   statuses: ProjectStatusesSchema.prefault({}),
@@ -559,6 +559,30 @@ export const RemoteWebSchema = z.object({
   public: z.boolean().default(false), // true -> anyone with the URL; false -> authenticated exe.dev users only
 });
 
+// A golden "template" VM kept warm (repo cloned, deps installed, app built, DB
+// seeded) so per-ticket previews copy it instead of cold-building. build_cmds
+// and seed_cmd are the repo-specific build/seed the template recipe runs, like
+// setup_cmds/postgres.seed_cmd do for a cold VM. quiesce_cmds run before every
+// copy so the disk snapshot is flushed and consistent.
+export const RemoteTemplateSchema = z.object({
+  enabled: z.boolean().default(false),
+  name: z.string().default(""), // golden VM name; "" = cold-build per ticket
+  branch: z.string().default(""), // base branch the template tracks; "" = repo default
+  build_cmds: z.array(z.string()).default([]), // build a servable app on the template
+  seed_cmd: z.array(z.string()).default([]), // seed data so the served app has something to show
+  quiesce_cmds: z.array(z.string()).default(["sync"]), // run before every copy to flush the disk
+});
+
+// A per-ticket preview copies the template, updates it to the base branch, and
+// serves the running app (remote.web) for review. With from_template empty it
+// falls back to a cold VM.
+export const RemotePreviewSchema = z.object({
+  enabled: z.boolean().default(false),
+  from_template: z.string().default(""), // copy source VM; "" = cold new VM
+  update_cmds: z.array(z.string()).default([]), // on boot: update to the base branch, install, build, migrate
+  restart_cmd: z.string().default(""), // restart the served app so it reflects the branch
+});
+
 export const RemoteConfigSchema = z.object({
   vm_prefix: z.string().default(""), // VM name prefix; "" = repo directory name
   tag: z.string().default(""), // required with a tag-scoped exe.dev SSH key
@@ -586,6 +610,8 @@ export const RemoteConfigSchema = z.object({
   postgres: RemotePostgresSchema.prefault({}),
   pr: RemotePrSchema.prefault({}),
   web: RemoteWebSchema.prefault({}), // expose a web app through the VM's HTTPS proxy
+  template: RemoteTemplateSchema.prefault({}), // golden warm VM, cp'd per ticket
+  preview: RemotePreviewSchema.prefault({}), // per-ticket preview: cp template -> update -> serve
   env_passthrough: z.array(z.string()).default([]), // extra host .env keys copied to the VM
 });
 export type RemoteConfig = z.infer<typeof RemoteConfigSchema>;

@@ -3,8 +3,8 @@
  * ADW Ticket Ship — a ClickUp ticket in, a reviewed PR out, hands-free.
  *
  * Usage:
- *     bun adws/adw_ticket_ship.ts PLFM-123 [--config ...] [--fresh] [--no-watch] [--dry-run]
- *     bun adws/adw_ticket_ship.ts PLFM-123 --watch-only        # re-enter finalize later
+ *     bun adws/adw_ticket_ship.ts ABC-123 [--config ...] [--fresh] [--no-watch] [--dry-run]
+ *     bun adws/adw_ticket_ship.ts ABC-123 --watch-only        # re-enter finalize later
  *
  * Phases: engineer(request) -> code(fetch_ticket) -> triager(triage)
  *         -> code(gate1: unclear? questions to the ticket, needs-info, STOP)

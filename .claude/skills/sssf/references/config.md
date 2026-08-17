@@ -47,7 +47,7 @@ agents:
       - bash
 ```
 
-The starter roster `install.ts` stamps is subscription-billed across two CLIs — `fable` planner, `sonnet` builder and documenter and `haiku` scout on `claude_code`, plus a `gpt-5.5` reviewer on `codex` — so a fresh install needs `claude login` **and** `codex login`, and no API key at all. The `challenger` above ships commented out; uncomment it to add a third provider on pi.
+The starter roster `install.ts` stamps is subscription-billed across two CLIs — `fable` planner, `sonnet` builder, documenter and pruner, and `haiku` scout on `claude_code`, plus a `gpt-5.5` reviewer on `codex` — so a fresh install needs `claude login` **and** `codex login`, and no API key at all. The pruner strips comments that only restate the code from the builder's diff; the SDLC chain runs it only when it is on the roster. The `challenger` above ships commented out; uncomment it to add a third provider on pi.
 
 ## Fields
 

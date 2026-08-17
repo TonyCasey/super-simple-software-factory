@@ -226,8 +226,7 @@ export function harvest(cfg: SSSFConfig, record: SandboxRecord): HarvestResult {
 
   const repo_root = git_helper.repo_root();
   // The VM pins to the REMOTE's head, which a stale host checkout may never
-  // have fetched (measured live on PLFM-78) — fetch before declaring the
-  // bundle unverifiable.
+  // have fetched — fetch before declaring the bundle unverifiable.
   const have_pin = Bun.spawnSync(["git", "cat-file", "-e", record.pinned_sha], { cwd: repo_root });
   if (have_pin.exitCode !== 0) {
     Bun.spawnSync(["git", "fetch", "origin"], { cwd: repo_root });
@@ -651,8 +650,7 @@ export async function dispatch_into(run: Run, opts: DispatchOptions): Promise<Di
           vm_name,
           `cd "$HOME/${APP_DIR}" || exit 1\n` + guest_script("seed.sh"),
           [url, ...pg.seed_cmd],
-          // Generous: a monorepo's seed may build the server first (nx
-          // database:reset dependsOn build — measured on solv-platform).
+          // Generous: a monorepo's seed may build the server first.
           { timeout_ms: 1_800_000 },
         );
         if (!out.includes("[seed] DONE")) throw new Error("seed.sh finished without DONE");

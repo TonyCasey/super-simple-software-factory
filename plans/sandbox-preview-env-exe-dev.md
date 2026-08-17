@@ -174,6 +174,20 @@ do not re-litigate settled facts.
 
 ## Stage B — Config: `remote.template` + `remote.preview`
 
+> **DONE 2026-08-17.** `RemoteTemplateSchema` + `RemotePreviewSchema` added to
+> `data_types.ts` (after `RemoteWebSchema`) and wired into `RemoteConfigSchema`
+> as `template`/`preview` (`.prefault({})`, orthogonal to `web`). `build_cmds`/
+> `seed_cmd` follow the existing `setup_cmds`/`postgres.seed_cmd` pattern — the
+> repo-specific work the Stage-D template recipe runs. Documented, commented
+> `template:`/`preview:` blocks added to `sssf.config.yaml`. **Deviation from the
+> spec above:** the shipped factory config stays project-agnostic, so the worked
+> examples are generic placeholders (`yarn install`/`yarn build`/`yarn db:seed`,
+> `sync`+`CHECKPOINT`), NOT the solv/Twenty recipe — that recipe belongs in
+> solv-platform's own `sssf.config.yaml`, not the template every install starts
+> from. Verified: `tsc --noEmit` clean; the shipped config parses and
+> `template`/`preview` resolve to their prefaults (`quiesce_cmds` → `["sync"]`);
+> a populated block round-trips.
+
 ### `templates/adws/adw_modules/data_types.ts` (modify)
 
 Reuse the existing `remote.web {enabled,port,public}` for expose semantics. Add:

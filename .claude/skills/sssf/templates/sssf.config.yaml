@@ -131,6 +131,39 @@ observability:
 #     public: false                # false -> gated behind exe.dev login (good for previews);
 #                                  # true -> open to anyone with the URL
 #                                  # (ad hoc: just sandbox-web <ticket|vm> 3001 --public)
+#
+#   # Preview environments. A `template` is a golden VM kept warm (repo cloned,
+#   # deps installed, app built, DB seeded); a per-ticket `preview` COPIES it
+#   # instead of cold-building, updates it to the base branch, and serves the
+#   # running app (via web: above) for review. Both are optional — leave preview
+#   # off and dispatch cold-builds a VM per ticket, as today.
+#   template:
+#     enabled: false               # true -> `just template-build` builds/refreshes the golden VM
+#     name: ""                     # the golden VM's name; "" = no template, cold-build per ticket
+#     branch: ""                   # base branch the template tracks; "" = repo default
+#     build_cmds:                  # build a servable app on the template (never starts the server).
+#                                  # Install only what you serve — a full monorepo install can fill
+#                                  # the VM disk. e.g.
+#       - "yarn install --immutable"
+#       - "yarn build"
+#     seed_cmd:                    # seed data so the served app has something to show, e.g.
+#       - "yarn db:seed"
+#     quiesce_cmds:                # run before EVERY copy — the copy snapshots the disk without
+#                                  # flushing it, so sync first (and CHECKPOINT postgres if present)
+#       - "sync"
+#       - "sudo -u postgres psql -c CHECKPOINT"
+#   preview:
+#     enabled: false               # true -> dispatch copies the template instead of cold-building
+#     from_template: ""            # copy source VM; "" = fall back to a cold new VM
+#     update_cmds:                 # on boot: update to the base branch, install if the lockfile
+#                                  # moved, rebuild what changed, migrate, e.g.
+#       - "git fetch origin"
+#       - "git reset --hard origin/main"
+#       - "yarn install --immutable"
+#       - "yarn build"
+#       - "yarn db:migrate"
+#     restart_cmd: ""              # restart the served app so it reflects the branch;
+#                                  # "" = the serve phase (re)starts it
 
 agents:
   - name: planner
@@ -157,8 +190,9 @@ agents:
     prompt_engineering:
       system: adws/adw_data/prompt_engineering/builder/system.md
       user: adws/adw_data/prompt_engineering/builder/user.md
-    # No `writes` key: unrestricted, and the only agent that is. It still cannot
-    # touch defaults.protected_files — the builder does not get to edit its own grader.
+    # No `writes` key: unrestricted (the pruner is the only other agent that is,
+    # and only to tidy the builder's own diff). It still cannot touch
+    # defaults.protected_files — the builder does not get to edit its own grader.
     tools:                         # the only agent that mutates the repo — everything on
       - read
       - grep
@@ -267,6 +301,30 @@ agents:
       - bash
       - write
       - edit
+
+  - name: pruner
+    model: sonnet                  # deliberate pick: telling a redundant "// increment i" from a
+                                   # load-bearing why-comment or a machine directive (eslint-disable,
+                                   # ts-ignore) is code judgment — haiku too blunt, opus/fable overkill
+                                   # for a scoped cleanup pass
+    color: "#94a3b8"
+    purpose: Strip comments that only restate the code the builder just wrote; keep the why, and every machine directive.
+    prompt_engineering:
+      system: adws/adw_data/prompt_engineering/pruner/system.md
+      user: adws/adw_data/prompt_engineering/pruner/user.md
+    # No `writes` key: it edits whichever source files the builder touched, and
+    # comments live in every language and directory, so a path glob cannot scope
+    # it. It is held to comments-only by its prompt, the diff_matches_claims gate,
+    # and the test loop that runs right after it — and it still cannot touch
+    # protected_files.
+    tools:                         # edits comments in place; write only so its report lands
+      - read
+      - grep
+      - find
+      - ls
+      - bash
+      - edit
+      - write
 
   # A THIRD opinion, on a provider neither subscription covers. The reviewer
   # above already breaks the Claude monoculture; reach for this when you want a
